@@ -6,20 +6,25 @@ import gspread
 import os 
 import time
 
-# Importa la lógica y constantes del módulo vecino
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
+# 💡 Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
+from routing_logic import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
 
-# =============================================================================
-# 1. CONFIGURACIÓN INICIAL Y CONEXIÓN
-# =============================================================================
+# ==============================================================================
+# CONFIGURACIÓN INICIAL, ESTILO Y CONEXIÓN
+# ==============================================================================
 
-st.set_page_config(page_title="Optimizador Ruteo Final", layout="wide")
+st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
 
-# Ocultar menú de Streamlit
-st.markdown("""<style>#MainMenu {visibility: hidden;} footer {visibility: hidden;}</style>""", unsafe_allow_html=True)
+# Ocultar menú de Streamlit y footer
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """, unsafe_allow_html=True)
 
-# 🚨 AJUSTAR: Reemplaza con la URL COMPLETA de tu Hoja de Cálculo
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1LPXWnSGiUWbwocukRH4A8Tb70R3Yt8A6NGAxvyJwe9k/edit?usp=sharing"
+# Define la Hoja de Cálculo a usar (Lee la URL directamente de Streamlit Secrets)
+GOOGLE_SHEET_URL = st.secrets.get("GOOGLE_SHEET_URL", "") # Lee la URL de los Secrets
 SHEET_WORKSHEET = "Hoja1" 
 
 # -------------------------------------------------------------------------
@@ -28,21 +33,33 @@ SHEET_WORKSHEET = "Hoja1"
 
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """Establece la conexión con Google Sheets usando la clave de servicio."""
+    """Establece la conexión con Google Sheets usando la clave de servicio (separada)."""
     try:
-        # Lee las credenciales del archivo secrets.toml en Streamlit Cloud
-        credentials_json = st.secrets["gdrive_creds"] 
-        credentials_dict = json.loads(credentials_json) 
+        # 💡 Creación del diccionario de credenciales a partir de variables separadas
+        credentials_dict = {
+            "type": "service_account",
+            "project_id": st.secrets["gsheets_project_id"],
+            "private_key_id": st.secrets["gsheets_private_key_id"],
+            "private_key": st.secrets["gsheets_private_key"], 
+            "client_email": st.secrets["gsheets_client_email"],
+            "client_id": st.secrets["gsheets_client_id"],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": st.secrets["gsheets_client_cert_url"]
+        }
         
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc
+    except KeyError as e:
+        st.warning(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
+        return None
     except Exception as e:
-        # Esta advertencia es la que indica que faltan las credenciales en la nube
-        st.warning(f"⚠️ Historial desactivado. Error de credenciales: {e}")
+        st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
         return None
 
 def load_historial_from_gsheets(client):
-    """Carga el historial desde Google Sheets."""
+    """Carga el historial desde Google Sheets o devuelve una lista vacía."""
     if not client: return []
     try:
         sh = client.open_by_url(GOOGLE_SHEET_URL)
@@ -66,6 +83,7 @@ def save_new_route_to_gsheets(client, new_route_data):
         worksheet = sh.worksheet(SHEET_WORKSHEET)
         
         # El orden de los valores debe coincidir con tus encabezados de Sheets
+        # Encabezados: Fecha, LotesIngresados, Lotes_CamionA, Lotes_CamionB, Km_CamionA, Km_CamionB
         row_values = [
             new_route_data["fecha"],
             new_route_data["lotes_ingresados"],
@@ -75,12 +93,14 @@ def save_new_route_to_gsheets(client, new_route_data):
             new_route_data["km_b"],
         ]
         
-        worksheet.append_row(row_values, value_input_option='USER_ENTERED')
+        worksheet.append_row(values_list, value_input_option='USER_ENTERED')
         
     except Exception as e:
         st.error(f"❌ Error al guardar datos en Google Sheets: {e}")
 
-# Inicialización del cliente y carga de historial
+# -------------------------------------------------------------------------
+# INICIALIZACIÓN DE LA SESIÓN Y CLIENTE
+# -------------------------------------------------------------------------
 gclient = get_gspread_client()
 
 if 'historial_cargado' not in st.session_state:
@@ -245,14 +265,13 @@ if page == "Calcular Nueva Ruta":
 elif page == "Historial":
     st.header("📋 Historial de Rutas Calculadas")
     
-    # 💡 Carga la versión más reciente del historial
-    df_historial = pd.DataFrame(st.session_state.historial_rutas)
-    
-    if not df_historial.empty:
+    if st.session_state.historial_rutas:
+        df_historial = pd.DataFrame(st.session_state.historial_rutas)
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
         
-        # Muestra el DF, usando los nombres amigables
-        st.dataframe(df_historial, 
+        df_display = df_historial.drop(columns=['lotes_ingresados'], errors='ignore')
+
+        st.dataframe(df_display, 
                      use_container_width=True,
                      column_config={
                          "km_a": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
@@ -264,7 +283,7 @@ elif page == "Historial":
                      })
         
         st.divider()
-        st.warning("El historial se guarda en Google Sheets.")
+        st.warning("El historial se carga desde Google Sheets.")
             
 
     else:
@@ -277,7 +296,6 @@ elif page == "Historial":
 elif page == "Estadísticas":
     st.header("📈 Estadísticas de Kilometraje")
     
-    # Carga la versión más reciente del historial para las estadísticas
     if st.session_state.historial_rutas:
         df = pd.DataFrame(st.session_state.historial_rutas)
         
