@@ -32,31 +32,25 @@ SHEET_WORKSHEET = "Hoja1"
 # -------------------------------------------------------------------------
 
 @st.cache_resource(ttl=3600)
+# --- Función de Conexión REVERTIDA a la versión robusta ---
+@st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """Establece la conexión con Google Sheets usando la clave de servicio (separada)."""
+    """Establece la conexión con Google Sheets usando la clave de servicio (JSON completo)."""
     try:
-        # 💡 Creación del diccionario de credenciales a partir de variables separadas
-        credentials_dict = {
-            "type": "service_account",
-            "project_id": st.secrets["gsheets_project_id"],
-            "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"], 
-            "client_email": st.secrets["gsheets_client_email"],
-            "client_id": st.secrets["gsheets_client_id"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": st.secrets["gsheets_client_cert_url"]
-        }
+        # Lee la cadena JSON completa de los secrets
+        json_string = st.secrets["gdrive_creds"]
         
-        gc = gspread.service_account_from_dict(credentials_dict)
+        # Convierte la cadena JSON en un cliente gspread
+        gc = gspread.service_account_from_string(json_string)
         return gc
     except KeyError as e:
+        # Este es el error que estás viendo
         st.warning(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
         return None
     except Exception as e:
         st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
         return None
+# -----------------------------------------------------------
 
 def load_historial_from_gsheets(client):
     """Carga el historial desde Google Sheets o devuelve una lista vacía."""
@@ -324,4 +318,5 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
+
 
