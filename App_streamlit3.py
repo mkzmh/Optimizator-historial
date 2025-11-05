@@ -39,7 +39,9 @@ def get_gspread_client():
         json_string = st.secrets["gdrive_creds"]
         
         # Convierte la cadena JSON en un cliente gspread
-        gc = gspread.service_account_from_string(json_string)
+        # Convertimos la cadena JSON a diccionario antes de pasarla a from_dict
+        credentials_dict = json.loads(json_string) 
+        gc = gspread.service_account_from_dict(credentials_dict)
         return gc
     except KeyError as e:
         # Este es el error que estás viendo
@@ -316,6 +318,7 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
+
 
 
 
