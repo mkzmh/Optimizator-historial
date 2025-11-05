@@ -1,17 +1,16 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-import json 
-import gspread 
-import os 
-import time
+import os
+import time 
+import json # Mantenido por si acaso, aunque ya no es estrictamente necesario para la lógica de Sheets
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
+from routing_logic import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
 
-# ==============================================================================
-# CONFIGURACIÓN INICIAL Y CONEXIÓN
-# ==============================================================================
+# =============================================================================
+# CONFIGURACIÓN INICIAL Y PERSISTENCIA DE DATOS (CSV)
+# =============================================================================
 
 st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
 
@@ -23,92 +22,66 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Define la Hoja de Cálculo a usar (Lee la URL directamente de Streamlit Secrets)
-# El valor por defecto se usa solo si la clave no está en secrets.toml
-GOOGLE_SHEET_URL = st.secrets.get("GOOGLE_SHEET_URL", "") 
-SHEET_WORKSHEET = "Hoja1" 
+# Define el nombre del archivo de historial para persistencia
+HISTORY_FILE = 'historial.csv'
+# Encabezados en el orden del CSV
+COLUMNS = ["Fecha", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
-# --- Función de Conexión FINAL Y ROBUSTA ---
-@st.cache_resource(ttl=3600)
-def get_gspread_client():
-    """Establece la conexión con Google Sheets usando variables de secrets separadas."""
-    try:
-        # 1. Crea el diccionario de credenciales a partir de los secrets individuales
-        credentials_dict = {
-            "type": "service_account",
-            "project_id": st.secrets["gsheets_project_id"],
-            "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"], 
-            "client_email": st.secrets["gsheets_client_email"],
-            "client_id": st.secrets["gsheets_client_id"],
-        }
-        
-        # 2. Usa service_account_from_dict (la función compatible)
-        gc = gspread.service_account_from_dict(credentials_dict)
-        return gc
-    except KeyError as e:
-        st.warning(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
-        return None
-    except Exception as e:
-        # Aquí capturará errores si la clave no tiene el formato esperado
-        st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
-        return None
-# ----------------------------------------------
-def load_historial_from_gsheets(client):
-    """Carga el historial desde Google Sheets o devuelve una lista vacía."""
-    if not client: return []
-    try:
-        sh = client.open_by_url(GOOGLE_SHEET_URL)
-        worksheet = sh.worksheet(SHEET_WORKSHEET)
-        
-        # Carga todos los registros (usando los encabezados de la Fila 1)
-        # Esto lee el historial guardado permanentemente
-        df = pd.DataFrame(worksheet.get_all_records())
-        
-        if df.empty: return []
-        # Retorna el historial como lista de diccionarios (records)
-        return df.to_dict('records')
 
-    except Exception as e:
-        st.error(f"❌ Error al cargar historial de la nube. Verifique la URL/nombre de pestaña.")
-        return []
+# --- Funciones de Persistencia CSV ---
 
-def save_new_route_to_gsheets(client, new_route_data):
-    """Guarda un nuevo registro de ruta en la Hoja de Cálculo."""
-    if not client: return
-    try:
-        sh = client.open_by_url(GOOGLE_SHEET_URL)
-        worksheet = sh.worksheet(SHEET_WORKSHEET)
-        
-        # El orden de los valores debe coincidir con tus encabezados de Sheets
-        row_values = [
-            new_route_data["fecha"],
-            new_route_data["lotes_ingresados"],
-            str(", ".join(new_route_data["lotes_a"])), 
-            str(", ".join(new_route_data["lotes_b"])), 
-            new_route_data["km_a"],
-            new_route_data["km_b"],
-        ]
-        
-        worksheet.append_row(row_values, value_input_option='USER_ENTERED')
-        
-    except Exception as e:
-        st.error(f"❌ Error al guardar datos en Google Sheets: {e}")
+@st.cache_data(ttl=3600)
+def get_history_data():
+    """Lee el historial del archivo CSV."""
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df = pd.read_csv(HISTORY_FILE)
+            return df
+        except Exception as e:
+            # Si el archivo existe pero está corrupto o vacío, retorna un DataFrame vacío
+            return pd.DataFrame(columns=COLUMNS)
+    else:
+        # Si el archivo no existe, devuelve un DataFrame vacío con las columnas esperadas
+        return pd.DataFrame(columns=COLUMNS)
+
+def save_new_route_to_csv(new_route_data):
+    """Escribe la nueva ruta al final del archivo CSV."""
+    
+    # Carga el historial actual
+    current_df = get_history_data()
+
+    # Formatea los datos de la nueva ruta en un DataFrame de una fila
+    new_row_df = pd.DataFrame([new_route_data])
+    
+    # Aseguramos que la nueva fila tenga las columnas en el orden correcto antes de concatenar
+    new_row_df = new_row_df[list(new_row_df.columns)]
+    
+    # Concatena y guarda
+    updated_df = pd.concat([current_df, new_row_df], ignore_index=True)
+    
+    # Sobrescribe el archivo CSV con los datos actualizados
+    updated_df.to_csv(HISTORY_FILE, index=False)
+    
+    # Invalida la caché para que la próxima vez que se llame a get_history_data() lea el archivo actualizado
+    st.cache_data.clear()
+
 
 # -------------------------------------------------------------------------
 # INICIALIZACIÓN DE LA SESIÓN Y CLIENTE
 # -------------------------------------------------------------------------
-gclient = get_gspread_client()
 
+# Inicializar el estado de la sesión para guardar el historial PERMANENTE
 if 'historial_cargado' not in st.session_state:
-    st.session_state.historial_rutas = load_historial_from_gsheets(gclient)
+    df_history = get_history_data()
+    # Convertimos el DataFrame a lista de diccionarios para la sesión
+    st.session_state.historial_rutas = df_history.to_dict('records')
     st.session_state.historial_cargado = True 
 
 if 'results' not in st.session_state:
     st.session_state.results = None 
 
 # =============================================================================
-# 2. ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
+# ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
 # =============================================================================
 
 st.sidebar.title("Menú Principal")
@@ -195,17 +168,18 @@ if page == "Calcular Nueva Ruta":
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
+                    # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN CSV
                     new_route = {
-                        "fecha": date.today().strftime("%Y-%m-%d"),
-                        "lotes_ingresados": ", ".join(all_stops_to_visit),
-                        "lotes_a": results['ruta_a']['lotes_asignados'],
-                        "lotes_b": results['ruta_b']['lotes_asignados'],
-                        "km_a": results['ruta_a']['distancia_km'],
-                        "km_b": results['ruta_b']['distancia_km'],
+                        "Fecha": date.today().strftime("%Y-%m-%d"),
+                        "Lotes_ingresados": ", ".join(all_stops_to_visit),
+                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
+                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
+                        "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
+                        "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
                     }
                     
-                    # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
-                    save_new_route_to_gsheets(gclient, new_route)
+                    # 🚀 GUARDA PERMANENTEMENTE EN CSV
+                    save_new_route_to_csv(new_route)
                     
                     # ACTUALIZA EL ESTADO DE LA SESIÓN
                     st.session_state.historial_rutas.append(new_route)
@@ -266,22 +240,28 @@ elif page == "Historial":
         df_historial = pd.DataFrame(st.session_state.historial_rutas)
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
         
-        df_display = df_historial.drop(columns=['lotes_ingresados'], errors='ignore')
-
-        st.dataframe(df_display, 
+        # Muestra el DF, usando los nombres amigables
+        st.dataframe(df_historial, 
                      use_container_width=True,
                      column_config={
-                         "km_a": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "km_b": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "lotes_a": "Lotes Camión A",
-                         "lotes_b": "Lotes Camión B",
-                         "fecha": "Fecha",
-                         "lotes_ingresados": "Lotes Ingresados"
+                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                         "Lotes_CamionA": "Lotes Camión A",
+                         "Lotes_CamionB": "Lotes Camión B",
+                         "Fecha": "Fecha",
+                         "Lotes_ingresados": "Lotes Ingresados"
                      })
         
         st.divider()
-        st.warning("El historial se carga desde Google Sheets.")
-            
+        st.warning("El historial se guarda permanentemente en el archivo CSV.")
+        
+        if st.button("🗑️ Borrar Historial PERMANENTE"):
+            # Vacia el estado de la sesión
+            st.session_state.historial_rutas = []
+            # Elimina el archivo CSV
+            if os.path.exists(HISTORY_FILE):
+                os.remove(HISTORY_FILE)
+            st.rerun()
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
@@ -297,18 +277,18 @@ elif page == "Estadísticas":
         df = pd.DataFrame(st.session_state.historial_rutas)
         
         # CÁLCULOS
-        df['fecha'] = pd.to_datetime(df['fecha'])
-        df['km_a'] = pd.to_numeric(df['km_a'], errors='coerce')
-        df['km_b'] = pd.to_numeric(df['km_b'], errors='coerce')
+        df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+        df['KmRecorridos_CamionA'] = pd.to_numeric(df['KmRecorridos_CamionA'], errors='coerce')
+        df['KmRecorridos_CamionB'] = pd.to_numeric(df['KmRecorridos_CamionB'], errors='coerce')
         
-        df_diario = df.groupby(df['fecha'].dt.date)[['km_a', 'km_b']].sum().reset_index()
+        df_diario = df.groupby(df['Fecha'].dt.date)[['KmRecorridos_CamionA', 'KmRecorridos_CamionB']].sum().reset_index()
         df_diario.columns = ['Fecha', 'KM Camión A', 'KM Camión B']
         
-        df['mes_año'] = df['fecha'].dt.to_period('M')
-        df_mensual = df.groupby('mes_año')[['km_a', 'km_b']].sum().reset_index()
+        df['mes_año'] = df['Fecha'].dt.to_period('M')
+        df_mensual = df.groupby('mes_año')[['KmRecorridos_CamionA', 'KmRecorridos_CamionB']].sum().reset_index()
         df_mensual['Mes'] = df_mensual['mes_año'].astype(str)
         
-        df_mensual_final = df_mensual[['Mes', 'km_a', 'km_b']].rename(columns={'km_a': 'KM Camión A', 'km_b': 'KM Camión B'})
+        df_mensual_final = df_mensual[['Mes', 'KmRecorridos_CamionA', 'KmRecorridos_CamionB']].rename(columns={'KmRecorridos_CamionA': 'KM Camión A', 'KmRecorridos_CamionB': 'KM Camión B'})
 
 
         st.subheader("Kilómetros Recorridos por Día")
@@ -321,9 +301,3 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
-
-
-
-
-
-
