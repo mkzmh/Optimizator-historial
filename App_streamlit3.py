@@ -28,27 +28,32 @@ st.markdown("""
 GOOGLE_SHEET_URL = st.secrets.get("GOOGLE_SHEET_URL", "") 
 SHEET_WORKSHEET = "Hoja1" 
 
+# --- Función de Conexión FINAL Y ROBUSTA ---
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """Establece la conexión con Google Sheets usando la clave de servicio (JSON en un diccionario)."""
+    """Establece la conexión con Google Sheets usando variables de secrets separadas."""
     try:
-        # Lee la cadena JSON completa de la variable gdrive_creds
-        json_string = st.secrets["gdrive_creds"]
+        # 1. Crea el diccionario de credenciales a partir de los secrets individuales
+        credentials_dict = {
+            "type": "service_account",
+            "project_id": st.secrets["gsheets_project_id"],
+            "private_key_id": st.secrets["gsheets_private_key_id"],
+            "private_key": st.secrets["gsheets_private_key"], 
+            "client_email": st.secrets["gsheets_client_email"],
+            "client_id": st.secrets["gsheets_client_id"],
+        }
         
-        # 💡 CORRECCIÓN: Usamos json.loads() para convertir la cadena JSON a diccionario
-        credentials_dict = json.loads(json_string) 
-        
-        # 💡 Usamos service_account_from_dict (la función compatible)
+        # 2. Usa service_account_from_dict (la función compatible)
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc
     except KeyError as e:
         st.warning(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
         return None
     except Exception as e:
-        # Aquí capturará errores de JSON si el formato está mal
+        # Aquí capturará errores si la clave no tiene el formato esperado
         st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
         return None
-
+# ----------------------------------------------
 def load_historial_from_gsheets(client):
     """Carga el historial desde Google Sheets o devuelve una lista vacía."""
     if not client: return []
@@ -316,6 +321,7 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
+
 
 
 
