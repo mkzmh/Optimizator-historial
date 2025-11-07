@@ -334,10 +334,12 @@ if page == "Calcular Nueva Ruta":
                     type="secondary"
                 )
                 st.caption(f"""
-                    **Recomendado para KM exactos.** En el móvil, use este flujo simple: 
-                    1. Haga clic en **Descargar**.
-                    2. En GeoJSON.io, toque **Exportar** y guarde el archivo como **GPX**.
-                    3. Abra el archivo GPX descargado y elija **Compartir/Abrir con OsmAnd** para iniciar el recorrido de **{res.get('distancia_km', 'N/A')} km**.
+                    **Recomendado para KM exactos.** En el móvil, el proceso es el siguiente: 
+                    
+                    1. 🖱️ **Haga clic** en el botón **Descargar** arriba. Se abrirá una página web (GeoJSON.io).
+                    2. 👆 En GeoJSON.io, toque el botón **Exportar** (es un ícono de flecha hacia abajo ⬇️).
+                    3. 📁 Seleccione el formato **GPX** y descargue el archivo.
+                    4. 📲 Abra el archivo GPX que acaba de descargar y elija **Compartir/Abrir con OsmAnd** para iniciar el recorrido de **{res.get('distancia_km', 'N/A')} km**.
                 """)
                 
                 st.markdown("---")
