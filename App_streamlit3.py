@@ -1,19 +1,23 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime # Importación actualizada para usar la hora
+import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
 import os
-import time 
-import json 
+import time
+import json
 import gspread # Necesario para la conexión a Google Sheets
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
-# CONFIGURACIÓN INICIAL Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
+# CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
 # =============================================================================
 
 st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
+
+# --- ZONA HORARIA ARGENTINA (GMT-3) ---
+ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires") # Define la zona horaria de Buenos Aires
 
 # Ocultar menú de Streamlit y footer
 st.markdown("""
@@ -39,7 +43,7 @@ def get_gspread_client():
             "type": "service_account",
             "project_id": st.secrets["gsheets_project_id"],
             "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"], 
+            "private_key": st.secrets["gsheets_private_key"],
             "client_email": st.secrets["gsheets_client_email"],
             "client_id": st.secrets["gsheets_client_id"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -48,7 +52,7 @@ def get_gspread_client():
             "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{st.secrets['gsheets_client_email']}",
             "universe_domain": "googleapis.com"
         }
-        
+
         # Usa service_account_from_dict para autenticar
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc
@@ -65,19 +69,19 @@ def get_history_data():
     client = get_gspread_client()
     if not client:
         return pd.DataFrame(columns=COLUMNS)
-    
+
     try:
         sh = client.open_by_url(st.secrets["GOOGLE_SHEET_URL"])
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
-        
+
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
-        
+
         # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
         if df.empty or len(df.columns) < len(COLUMNS):
             return pd.DataFrame(columns=COLUMNS)
         return df
-        
+
     except Exception as e:
         # Puede fallar si la hoja no está compartida
         st.error(f"❌ Error al cargar datos de Google Sheets. Asegure permisos para {st.secrets['gsheets_client_email']}: {e}")
@@ -93,14 +97,14 @@ def save_new_route_to_sheet(new_route_data):
     try:
         sh = client.open_by_url(st.secrets["GOOGLE_SHEET_URL"])
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
-        
+
         # gspread necesita una lista de valores en el orden de las COLUMNS
         # El orden es crucial: [Fecha, Hora, Lotes_ingresados, ...]
         values_to_save = [new_route_data[col] for col in COLUMNS]
-        
+
         # Añade la fila al final de la hoja
         worksheet.append_row(values_to_save)
-        
+
         # Invalida la caché para que la próxima lectura traiga el dato nuevo
         st.cache_data.clear()
 
@@ -109,7 +113,7 @@ def save_new_route_to_sheet(new_route_data):
 
 
 # -------------------------------------------------------------------------
-# INICIALIZACIÓN DE LA SESIÓN 
+# INICIALIZACIÓN DE LA SESIÓN
 # -------------------------------------------------------------------------
 
 # Inicializar el estado de la sesión para guardar el historial PERMANENTE
@@ -117,10 +121,10 @@ if 'historial_cargado' not in st.session_state:
     df_history = get_history_data() # Ahora carga de Google Sheets
     # Convertimos el DataFrame a lista de diccionarios para la sesión
     st.session_state.historial_rutas = df_history.to_dict('records')
-    st.session_state.historial_cargado = True 
+    st.session_state.historial_cargado = True
 
 if 'results' not in st.session_state:
-    st.session_state.results = None 
+    st.session_state.results = None
 
 # =============================================================================
 # ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
@@ -143,12 +147,12 @@ if page == "Calcular Nueva Ruta":
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
 
     st.header("Selección de Destinos")
-    
+
     lotes_input = st.text_input(
         "Ingrese los lotes a visitar (separados por coma, ej: A05, B10, C95):",
         placeholder="A05, A10, B05, B10, C95, D01, K01"
     )
-    
+
     col_map, col_details = st.columns([2, 1])
 
     all_stops_to_visit = [l.strip().upper() for l in lotes_input.split(',') if l.strip()]
@@ -157,7 +161,7 @@ if page == "Calcular Nueva Ruta":
     # Lógica de pre-visualización y mapa...
     map_data_list = []
     map_data_list.append({'name': 'INGENIO (Origen)', 'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0]})
-    
+
     valid_stops_count = 0
     invalid_stops = [l for l in all_stops_to_visit if l not in COORDENADAS_LOTES]
 
@@ -166,9 +170,9 @@ if page == "Calcular Nueva Ruta":
             lon, lat = COORDENADAS_LOTES[lote]
             map_data_list.append({'name': lote, 'lat': lat, 'lon': lon})
             valid_stops_count += 1
-    
+
     map_data = pd.DataFrame(map_data_list)
-    
+
     with col_map:
         if valid_stops_count > 0:
             st.subheader(f"Mapa de {valid_stops_count} Destinos")
@@ -179,13 +183,13 @@ if page == "Calcular Nueva Ruta":
     with col_details:
         st.subheader("Estado de la Selección")
         st.metric("Total Lotes Ingresados", num_lotes)
-        
+
         if invalid_stops:
             st.error(f"❌ {len(invalid_stops)} Lotes Inválidos: {', '.join(invalid_stops)}.")
-        
+
         MIN_LOTES = 3
         MAX_LOTES = 7
-        
+
         if valid_stops_count < MIN_LOTES or valid_stops_count > MAX_LOTES:
             st.warning(f"⚠️ Debe ingresar entre {MIN_LOTES} y {MAX_LOTES} lotes válidos. Ingresó {valid_stops_count}.")
             calculate_disabled = True
@@ -198,49 +202,50 @@ if page == "Calcular Nueva Ruta":
     # 🛑 BOTÓN DE CÁLCULO Y LÓGICA
     # -------------------------------------------------------------------------
     st.divider()
-    
+
     if st.button("🚀 Calcular Rutas Óptimas", key="calc_btn_main", type="primary", disabled=calculate_disabled):
-        
-        st.session_state.results = None 
-        current_time = datetime.now() # Captura la fecha y hora ahora
+
+        st.session_state.results = None
+        # 👇 CAMBIO CLAVE: Usa la zona horaria de Argentina
+        current_time = datetime.now(ARG_TZ) # Captura la fecha y hora con la zona horaria argentina
 
         with st.spinner('Realizando cálculo óptimo y agrupando rutas'):
             try:
-                results = solve_route_optimization(all_stops_to_visit) 
-                
+                results = solve_route_optimization(all_stops_to_visit)
+
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
-                        "Hora": current_time.strftime("%H:%M:%S"), # << NUEVA HORA
+                        "Hora": current_time.strftime("%H:%M:%S"), # << Usa la hora ya en la zona horaria correcta
                         "Lotes_ingresados": ", ".join(all_stops_to_visit),
                         "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
                         "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
                         "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
                         "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
                     }
-                    
+
                     # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
                     save_new_route_to_sheet(new_route)
-                    
+
                     # ACTUALIZA EL ESTADO DE LA SESIÓN
                     st.session_state.historial_rutas.append(new_route)
                     st.session_state.results = results
                     st.success("✅ Cálculo finalizado y rutas optimizadas. Datos guardados permanentemente en Google Sheets.")
-                    
+
             except Exception as e:
                 st.session_state.results = None
                 st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}")
-                
+
     # -------------------------------------------------------------------------
     # 2. REPORTE DE RESULTADOS UNIFICADO
     # -------------------------------------------------------------------------
-    
+
     if st.session_state.results:
         results = st.session_state.results
-        
+
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
@@ -250,7 +255,7 @@ if page == "Calcular Nueva Ruta":
         res_b = results.get('ruta_b', {})
 
         col_a, col_b = st.columns(2)
-        
+
         with col_a:
             st.subheader(f"🚛 Camión 1: {res_a.get('patente', 'N/A')}")
             with st.container(border=True):
@@ -259,7 +264,7 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 st.link_button("🌐 Ver Ruta A en GeoJSON.io", res_a.get('geojson_link', '#'))
-            
+
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
@@ -279,16 +284,16 @@ if page == "Calcular Nueva Ruta":
 
 elif page == "Historial":
     st.header("📋 Historial de Rutas Calculadas")
-    
+
     # Se recarga el historial de Google Sheets para garantizar que está actualizado
-    df_historial = get_history_data() 
+    df_historial = get_history_data()
     st.session_state.historial_rutas = df_historial.to_dict('records') # Sincroniza la sesión
 
     if not df_historial.empty:
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
-        
+
         # Muestra el DF, usando los nombres amigables
-        st.dataframe(df_historial, 
+        st.dataframe(df_historial,
                      use_container_width=True,
                      column_config={
                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
@@ -298,7 +303,7 @@ elif page == "Historial":
                          "Fecha": "Fecha",
                          "Hora": "Hora de Carga", # Nombre visible en Streamlit
                          "Lotes_ingresados": "Lotes Ingresados"
-                     })
-        
+                      })
+
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
