@@ -26,7 +26,8 @@
                 <p id="next-stop-name" class="text-2xl font-extrabold text-indigo-600">...</p>
                 <p id="stop-counter" class="text-sm text-gray-500"></p>
             </div>
-            <a id="navigate-button" href="#" target="_blank" class="w-full md:w-auto px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-700 transition duration-150 text-center disabled:opacity-50">
+            <!-- FIX: Usamos un onclick directo para avanzar el estado ANTES de que el navegador abra el link -->
+            <a id="navigate-button" href="#" target="_blank" onclick="handleNavigationAndAdvance(event)" class="w-full md:w-auto px-6 py-3 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-700 transition duration-150 text-center disabled:opacity-50">
                 🗺️ Navegar (Google Maps)
             </a>
         </div>
@@ -55,7 +56,9 @@
 
         function base64Decode(str) {
             try {
-                return JSON.parse(atob(str));
+                // La cadena Base64 podría incluir caracteres no seguros para URL, los reemplazamos
+                const sanitizedStr = str.replace(/-/g, '+').replace(/_/g, '/');
+                return JSON.parse(atob(sanitizedStr));
             } catch (e) {
                 console.error("Error al decodificar Base64:", e);
                 return null;
@@ -75,7 +78,7 @@
         function updateMapAndControls() {
             if (!routeGeoJson || stops.length === 0) return;
 
-            // 1. Actualizar el contador y el nombre de la parada
+            // La parada actual es stops[currentStopIndex]
             const nextStop = stops[currentStopIndex];
             const totalStops = stops.length;
             
@@ -83,7 +86,6 @@
             document.getElementById('stop-counter').textContent = `Parada ${currentStopIndex + 1} de ${totalStops}`;
 
             // 2. Generar el enlace de navegación (Google Maps)
-            // Navegar del Ingenio (o la parada anterior) a la parada actual.
             let originCoord;
             if (currentStopIndex === 0) {
                 // Inicio: Ingenio -> Primera Parada
@@ -96,11 +98,11 @@
             
             const destinationCoord = `${nextStop.lat},${nextStop.lon}`; // lat,lon de la parada actual
             
-            // Queremos navegación simple, solo un origen y un destino.
+            // Generar link simple (Origen -> Destino)
             const navLink = generateGmapsLink(originCoord, destinationCoord, []);
             document.getElementById('navigate-button').href = navLink;
 
-            // 3. Resaltar la parada actual en el mapa (si Leaflet está cargado)
+            // 3. Resaltar la parada actual en el mapa
             if (map) {
                 // Eliminar marcadores anteriores
                 map.eachLayer(layer => {
@@ -117,41 +119,45 @@
                         iconSize: [30, 30],
                         iconAnchor: [15, 30]
                     })
-                }).addTo(map).bindPopup(`Próximo Destino: ${nextStop.name}`);
+                }).addTo(map).bindPopup(`Próximo Destino: ${nextStop.name}`).openPopup(); // Abrir popup para visibilidad
+                
+                // Mover la vista al marcador actual
+                map.setView([nextStop.lat, nextStop.lon], map.getZoom() > 14 ? map.getZoom() : 14);
 
-                // Si la parada actual es la última, cambiamos el botón a "Finalizar"
+
+                // Manejar el estado final de la ruta
                 if (currentStopIndex === totalStops - 1) {
                     document.getElementById('navigate-button').textContent = "🏠 Regresar al Ingenio";
-                    document.getElementById('next-stop-name').textContent = "Ruta Completa!";
+                    document.getElementById('next-stop-name').textContent = "Última Parada: Regreso!";
                     document.getElementById('stop-counter').textContent = `Parada Final ${totalStops} de ${totalStops}`;
-                }
-
-                // Si se llega al final, deshabilitamos el botón
-                if (currentStopIndex >= totalStops) {
+                } else if (currentStopIndex >= totalStops) {
+                    // Estado de finalización total (después del clic en 'Regresar')
                     document.getElementById('navigate-button').style.display = 'none';
                     document.getElementById('next-stop-name').textContent = "¡Ruta Finalizada!";
                     document.getElementById('stop-counter').textContent = "";
                     document.getElementById('status').className = "mb-4 p-3 bg-green-100 border border-green-300 rounded-lg text-green-800 text-sm";
-                    document.getElementById('status').textContent = "¡Todos los lotes visitados! Diríjase al Ingenio.";
+                    document.getElementById('status').textContent = "¡Todos los lotes visitados! Ruta concluida.";
                 }
             }
         }
         
-        function handleNextClick() {
-            if (currentStopIndex < stops.length - 1) {
-                currentStopIndex++;
-                updateMapAndControls();
-            } else if (currentStopIndex === stops.length - 1) {
-                // Última parada: Lanza la navegación de regreso al Ingenio
-                const lastStop = stops[currentStopIndex];
-                const originCoord = `${lastStop.lat},${lastStop.lon}`;
-                const destinationCoord = `${COORDENADAS_ORIGEN[1]},${COORDENADAS_ORIGEN[0]}`;
-                const navLink = generateGmapsLink(originCoord, destinationCoord, []);
-                document.getElementById('navigate-button').href = navLink;
-                
-                currentStopIndex++; // Avanza el contador para estado de finalización
+        // Función simplificada que se llama al hacer clic en el botón
+        function handleNavigationAndAdvance(e) {
+            // Si ya estamos en el estado de finalización, no hacemos nada más que dejar que se abra el link de regreso.
+            if (currentStopIndex >= stops.length) {
+                return true; 
+            }
+            
+            // 1. Abrir el enlace (el navegador lo hace automáticamente porque es un <a> tag).
+            
+            // 2. Avanzar al siguiente punto
+            if (currentStopIndex < stops.length) {
+                currentStopIndex++; 
                 updateMapAndControls();
             }
+            
+            // Permitimos que el enlace se abra naturalmente.
+            return true;
         }
 
         // --- Inicialización ---
@@ -193,11 +199,7 @@
             // Ajustar el mapa para que muestre toda la ruta
             map.fitBounds(geoJsonLayer.getBounds());
             
-            // Añadir manejador de clics
-            document.getElementById('navigate-button').addEventListener('click', (e) => {
-                 // Permitimos que el enlace se abra, pero actualizamos el estado *después*
-                 setTimeout(handleNextClick, 500); 
-            });
+            // El listener de clic es ahora una función inline: onclick="handleNavigationAndAdvance(event)"
 
             // Inicializar el primer punto de control
             currentStopIndex = 0;
