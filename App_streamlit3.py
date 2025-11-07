@@ -8,7 +8,30 @@ import time
 
 # 💡 IMPORTACIÓN: Usar el nombre de archivo exacto que tienes en GitHub
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
+# --- FUNCIÓN DE GOOGLE MAPS MOVIDA AL ARCHIVO PRINCIPAL PARA EVITAR ERRORES DE IMPORTACIÓN ---
+def generate_google_maps_link(optimized_coords_sequence):
+    """
+    Genera una URL de Google Maps con múltiples paradas optimizadas.
+    """
+    if not optimized_coords_sequence or len(optimized_coords_sequence) < 2:
+        return ""
 
+    origin_coord = optimized_coords_sequence[0]
+    destination_coord = optimized_coords_sequence[-1]
+    waypoints = optimized_coords_sequence[1:-1]
+
+    # Formatear la secuencia de coordenadas: LAT,LON
+    origin = f"{origin_coord[1]},{origin_coord[0]}"
+    destination = f"{destination_coord[1]},{destination_coord[0]}"
+    
+    # Codificar los waypoints para la URL
+    waypoints_str = '|'.join([f"{c[1]},{c[0]}" for c in waypoints])
+
+    # Construir la URL de Google Maps Directions
+    base_url = "https://maps.google.com/maps?saddr="
+    url = f"{base_url}{origin}&daddr={destination}&waypoints={waypoints_str}&dir_action=navigate"
+    
+    return url
 # =============================================================================
 # CONFIGURACIÓN INICIAL Y CONEXIÓN
 # =============================================================================
@@ -337,4 +360,5 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
+
 
