@@ -129,7 +129,7 @@ if 'results' not in st.session_state:
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial", "Estadísticas"]
+    ["Calcular Nueva Ruta", "Historial"]
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -302,41 +302,3 @@ elif page == "Historial":
         
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
-
-# =============================================================================
-# 4. PÁGINA: ESTADÍSTICAS
-# =============================================================================
-
-elif page == "Estadísticas":
-    st.header("📈 Estadísticas de Kilometraje")
-    
-    df = pd.DataFrame(st.session_state.historial_rutas)
-
-    if not df.empty:
-        
-        # CÁLCULOS
-        # Nota: La columna Hora no necesita ser convertida a numérica aquí
-        df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        df['KmRecorridos_CamionA'] = pd.to_numeric(df['KmRecorridos_CamionA'], errors='coerce')
-        df['KmRecorridos_CamionB'] = pd.to_numeric(df['KmRecorridos_CamionB'], errors='coerce')
-        
-        df_diario = df.groupby(df['Fecha'].dt.date)[['KmRecorridos_CamionA', 'KmRecorridos_CamionB']].sum().reset_index()
-        df_diario.columns = ['Fecha', 'KM Camión A', 'KM Camión B']
-        
-        df['mes_año'] = df['Fecha'].dt.to_period('M')
-        df_mensual = df.groupby('mes_año')[['KmRecorridos_CamionA', 'KmRecorridos_CamionB']].sum().reset_index()
-        df_mensual['Mes'] = df_mensual['mes_año'].astype(str)
-        
-        df_mensual_final = df_mensual[['Mes', 'KmRecorridos_CamionA', 'KmRecorridos_CamionB']].rename(columns={'KmRecorridos_CamionA': 'KM Camión A', 'KmRecorridos_CamionB': 'KM Camión B'})
-
-
-        st.subheader("Kilómetros Recorridos por Día")
-        st.dataframe(df_diario, use_container_width=True)
-        st.bar_chart(df_diario.set_index('Fecha'))
-
-        st.subheader("Kilómetros Mensuales Acumulados")
-        st.dataframe(df_mensual_final, use_container_width=True)
-        st.bar_chart(df_mensual_final.set_index('Mes'))
-
-    else:
-        st.info("No hay datos en el historial para generar estadísticas.")
