@@ -27,7 +27,8 @@ st.markdown("""
 GOOGLE_SHEET_URL = st.secrets.get("GOOGLE_SHEET_URL", "") 
 SHEET_WORKSHEET = "Hoja1" 
 
-# Encabezados simplificados en el orden de Google Sheets para evitar KeyErrors
+# Encabezados simplificados en el orden de Google Sheets
+# Este orden DEBE coincidir con la Fila 1 de tu Hoja de Google
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "LotesA", "LotesB", "KMA", "KMB"]
 
 # -------------------------------------------------------------------------
@@ -36,23 +37,13 @@ COLUMNS = ["Fecha", "Hora", "LotesIngresados", "LotesA", "LotesB", "KMA", "KMB"]
 
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
-    """Establece la conexión con Google Sheets usando la clave de servicio."""
+    """Establece la conexión con Google Sheets usando la clave de servicio (JSON en una cadena)."""
     try:
-        # Se asume que las variables individuales están configuradas en Streamlit Secrets
-        credentials_dict = {
-            "type": "service_account",
-            "project_id": st.secrets["gsheets_project_id"],
-            "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"], 
-            "client_email": st.secrets["gsheets_client_email"],
-            "client_id": st.secrets["gsheets_client_id"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{st.secrets['gsheets_client_email']}",
-            "universe_domain": "googleapis.com"
-        }
+        # Lee la cadena JSON completa de la variable gdrive_creds
+        json_string = st.secrets["gdrive_creds"]
         
+        # Usa service_account_from_dict para autenticar
+        credentials_dict = json.loads(json_string) 
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc
     except KeyError as e:
@@ -70,19 +61,17 @@ def get_history_data():
         return pd.DataFrame(columns=COLUMNS)
     
     try:
-        sh = client.open_by_url(st.secrets["GOOGLE_SHEET_URL"])
-        worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
+        worksheet = sh.worksheet(SHEET_WORKSHEET)
         
-        # Carga todos los registros (usando los encabezados de la Fila 1)
-        df = pd.DataFrame(worksheet.get_all_records())
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
         
+        # Validación de columnas al cargar
         if df.empty or len(df.columns) < len(COLUMNS):
             return pd.DataFrame(columns=COLUMNS)
         
-        # Renombrar las columnas leídas para que coincidan con las claves internas (ej: 'Km_CamionA' a 'KMA')
-        # NOTA: get_all_records ya usa los nombres de la fila 1 de la hoja,
-        # así que las claves del DataFrame ya serán 'Fecha', 'Hora', 'Lotes_CamionA', etc.
-        
+        # Mantenemos las columnas con los nombres simplificados de la Hoja
         return df
 
     except Exception as e:
@@ -97,17 +86,23 @@ def save_new_route_to_sheet(new_route_data):
         return
 
     try:
-        sh = client.open_by_by_url(st.secrets["GOOGLE_SHEET_URL"])
+        sh = client.open_by_url(GOOGLE_SHEET_URL)
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
         
-        # gspread necesita una lista de valores en el orden de las COLUMNS
-        # Se accede al diccionario 'new_route_data' usando las claves simplificadas
-        values_to_save = [new_route_data[col] for col in COLUMNS]
+        # El orden de los valores debe coincidir con el orden de COLUMNS (7 valores)
+        row_values = [
+            new_route_data["Fecha"],
+            new_route_data["Hora"],
+            new_route_data["LotesIngresados"],
+            new_route_data["LotesA"], # Clave simplificada
+            new_route_data["LotesB"], # Clave simplificada
+            new_route_data["KMA"], # Clave simplificada
+            new_route_data["KMB"], # Clave simplificada
+        ]
         
         worksheet.append_row(values_to_save, value_input_option='USER_ENTERED')
         
-        # Invalida la caché para que la próxima lectura traiga el dato nuevo
-        st.cache_data.clear()
+        st.cache_data.clear() # Invalida la caché para que se recargue el historial
 
     except Exception as e:
         st.error(f"❌ Error al guardar datos en Google Sheets: {e}")
@@ -213,15 +208,15 @@ if page == "Calcular Nueva Ruta":
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
-                    # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
+                    # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS (CLAVES SIMPLIFICADAS)
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
                         "Hora": current_time.strftime("%H:%M:%S"),
                         "LotesIngresados": ", ".join(all_stops_to_visit),
-                        "LotesA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
-                        "LotesB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
-                        "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
-                        "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
+                        "LotesA": str(results['ruta_a']['lotes_asignados']), 
+                        "LotesB": str(results['ruta_b']['lotes_asignados']),
+                        "KMA": results['ruta_a']['distancia_km'], # Clave KMA
+                        "KMB": results['ruta_b']['distancia_km'], # Clave KMB
                     }
                     
                     # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
@@ -282,9 +277,8 @@ if page == "Calcular Nueva Ruta":
 elif page == "Historial":
     st.header("📋 Historial de Rutas Calculadas")
     
-    # Se recarga el historial de Google Sheets para garantizar que está actualizado
     df_historial = get_history_data() 
-    st.session_state.historial_rutas = df_historial.to_dict('records') # Sincroniza la sesión
+    st.session_state.historial_rutas = df_historial.to_dict('records')
 
     if not df_historial.empty:
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
@@ -293,10 +287,10 @@ elif page == "Historial":
         st.dataframe(df_historial, 
                      use_container_width=True,
                      column_config={
-                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "Lotes_CamionA": "Lotes Camión A",
-                         "Lotes_CamionB": "Lotes Camión B",
+                         "KMA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                         "KMB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                         "LotesA": "Lotes Camión A",
+                         "LotesB": "Lotes Camión B",
                          "Fecha": "Fecha",
                          "Hora": "Hora",
                          "LotesIngresados": "Lotes Ingresados"
@@ -316,19 +310,19 @@ elif page == "Estadísticas":
 
     if not df.empty:
         
-        # CÁLCULOS
+        # CÁLCULOS (Usando las claves simplificadas KMA y KMB)
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        df['Km_CamionA'] = pd.to_numeric(df['Km_CamionA'], errors='coerce')
-        df['Km_CamionB'] = pd.to_numeric(df['Km_CamionB'], errors='coerce')
+        df['KMA'] = pd.to_numeric(df['KMA'], errors='coerce')
+        df['KMB'] = pd.to_numeric(df['KMB'], errors='coerce')
         
-        df_diario = df.groupby(df['Fecha'].dt.date)[['Km_CamionA', 'Km_CamionB']].sum().reset_index()
+        df_diario = df.groupby(df['Fecha'].dt.date)[['KMA', 'KMB']].sum().reset_index()
         df_diario.columns = ['Fecha', 'KM Camión A', 'KM Camión B']
         
         df['mes_año'] = df['Fecha'].dt.to_period('M')
-        df_mensual = df.groupby('mes_año')[['Km_CamionA', 'Km_CamionB']].sum().reset_index()
+        df_mensual = df.groupby('mes_año')[['KMA', 'KMB']].sum().reset_index()
         df_mensual['Mes'] = df_mensual['mes_año'].astype(str)
         
-        df_mensual_final = df_mensual[['Mes', 'KmRecorridos_CamionA', 'KmRecorridos_CamionB']].rename(columns={'KmRecorridos_CamionA': 'KM Camión A', 'KmRecorridos_CamionB': 'KM Camión B'})
+        df_mensual_final = df_mensual[['Mes', 'KMA', 'KMB']].rename(columns={'KMA': 'KM Camión A', 'KMB': 'KM Camión B'})
 
 
         st.subheader("Kilómetros Recorridos por Día")
@@ -341,4 +335,3 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
-
