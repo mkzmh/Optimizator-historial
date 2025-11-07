@@ -7,7 +7,7 @@ import os
 import time
 
 # 💡 IMPORTACIÓN: Usar el nombre de archivo exacto que tienes en GitHub
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, generate_google_maps_link 
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL Y CONEXIÓN
@@ -337,3 +337,4 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
+
