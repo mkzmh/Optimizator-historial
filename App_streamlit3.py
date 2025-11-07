@@ -8,7 +8,7 @@ import time
 import pytz # Para la zona horaria de Argentina
 
 # 💡 Importación de la lógica (Asegúrate que el nombre del archivo de lógica sea el correcto)
-from routing_logic import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL Y CONEXIÓN
@@ -310,3 +310,4 @@ elif page == "Historial":
         
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
