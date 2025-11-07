@@ -129,7 +129,7 @@ if 'results' not in st.session_state:
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial", "Estadísticas"]
+    ["Calcular Nueva Ruta", "Historial"]
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -302,3 +302,4 @@ elif page == "Historial":
         
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
