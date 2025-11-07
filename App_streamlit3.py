@@ -32,6 +32,54 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
+# --- Funciones Auxiliares para Navegación ---
+
+def generate_gmaps_link(stops_order):
+    """
+    Genera un enlace de Google Maps para una ruta con múltiples paradas.
+    La ruta comienza en el origen (Ingenio) y regresa a él.
+    """
+    if not stops_order:
+        return '#'
+
+    # COORDENADAS_ORIGEN es (lon, lat). GMaps requiere lat,lon.
+    lon_orig, lat_orig = COORDENADAS_ORIGEN
+    
+    # 1. Punto de partida (Ingenio)
+    # 2. Puntos intermedios (Paradas optimizadas)
+    # 3. Punto de destino final (Volver al Ingenio)
+    
+    route_parts = [f"{lat_orig},{lon_orig}"] # Origen
+    
+    # Añadir paradas intermedias
+    for stop_lote in stops_order:
+        if stop_lote in COORDENADAS_LOTES:
+            lon, lat = COORDENADAS_LOTES[stop_lote]
+            route_parts.append(f"{lat},{lon}") # lat,lon
+
+    # Añadir destino final (regreso al origen)
+    route_parts.append(f"{lat_orig},{lon_orig}")
+
+    # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
+    return "https://www.google.com/maps/dir/" + "/".join(route_parts)
+
+def generate_waze_link(stops_order):
+    """
+    Genera un enlace de Waze para navegar a la primera parada de la ruta óptima.
+    Waze no maneja rutas multi-parada de forma nativa en sus enlaces web/deep links fácilmente.
+    """
+    if not stops_order:
+        return '#'
+        
+    first_stop = stops_order[0]
+    if first_stop in COORDENADAS_LOTES:
+        lon, lat = COORDENADAS_LOTES[first_stop]
+        # Formato de Waze para latitud y longitud, con navegación directa
+        return f"https://waze.com/ul?ll={lat},{lon}&navigate=yes"
+    
+    return '#'
+
+
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
 
 @st.cache_resource(ttl=3600)
@@ -216,6 +264,15 @@ if page == "Calcular Nueva Ruta":
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
+                    # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
+                    # Ruta A
+                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo'])
+                    
+                    # Ruta B
+                    results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo'])
+
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
@@ -263,7 +320,13 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Distancia Total (TSP):** **{res_a.get('distancia_km', 'N/A')} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
-                st.link_button("🌐 Ver Ruta A en GeoJSON.io", res_a.get('geojson_link', '#'))
+                
+                # 👇 NUEVOS ENLACES DE NAVEGACIÓN
+                st.markdown("---")
+                st.link_button("🗺️ Iniciar Ruta en Google Maps (Multi-Parada)", res_a.get('gmaps_link', '#'))
+                st.link_button("📍 Navegar a la 1ra Parada con Waze", res_a.get('waze_link', '#'))
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+
 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
@@ -272,7 +335,12 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A')} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
-                st.link_button("🌐 Ver Ruta B en GeoJSON.io", res_b.get('geojson_link', '#'))
+                
+                # 👇 NUEVOS ENLACES DE NAVEGACIÓN
+                st.markdown("---")
+                st.link_button("🗺️ Iniciar Ruta en Google Maps (Multi-Parada)", res_b.get('gmaps_link', '#'))
+                st.link_button("📍 Navegar a la 1ra Parada con Waze", res_b.get('waze_link', '#'))
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
