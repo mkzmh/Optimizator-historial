@@ -253,11 +253,9 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                    # results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo']) <-- ELIMINADO
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                    # results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo']) <-- ELIMINADO
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -309,8 +307,8 @@ if page == "Calcular Nueva Ruta":
                 
                 # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Iniciar Ruta en Google Maps (Multi-Parada)", res_a.get('gmaps_link', '#'))
-                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                st.link_button("🗺️ Ruta en Google Maps Camión A", res_a.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
 
 
         with col_b:
@@ -323,8 +321,8 @@ if page == "Calcular Nueva Ruta":
                 
                 # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Iniciar Ruta en Google Maps (Multi-Parada)", res_b.get('gmaps_link', '#'))
-                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+                st.link_button("🗺️ Ruta en Google Maps Camión B", res_b.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -359,3 +357,4 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
