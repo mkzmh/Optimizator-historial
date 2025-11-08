@@ -28,6 +28,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Encabezados en el orden de Google Sheets
+# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
@@ -62,22 +63,7 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-def generate_waze_link_full_route(stops_order):
-    """
-    Genera un enlace de Waze que apunta a la primera parada óptima.
-    Waze no soporta rutas de múltiples paradas vía URL, por lo que este es el mejor compromiso.
-    """
-    if not stops_order:
-        return '#'
-
-    # Obtenemos la primera parada optimizada
-    first_stop = stops_order[0]
-    lon_first, lat_first = COORDENADAS_LOTES[first_stop]
-    
-    # Enlace Waze a la primera parada
-    waze_url = f"https://waze.com/ul?ll={lat_first},{lon_first}&navigate=yes"
-    
-    return waze_url
+# La función generate_waze_link ha sido eliminada.
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -191,7 +177,7 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 # =============================================================================
 
 if page == "Calcular Nueva Ruta":
-    st.title("🚚 Optimizator")
+    st.title("🚚 Optimizator📍")
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
 
     st.header("Selección de Destinos")
@@ -267,11 +253,9 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                    results['ruta_a']['waze_link'] = generate_waze_link_full_route(results['ruta_a']['orden_optimo']) # << ENLACE WAZE
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                    results['ruta_b']['waze_link'] = generate_waze_link_full_route(results['ruta_b']['orden_optimo']) # << ENLACE WAZE
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -321,11 +305,10 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (LAS 3 OPCIONES)
+                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps (Multi-Parada)", res_a.get('gmaps_link', '#'))
-                st.link_button("🔵 Ruta en Waze (Solo 1ra Parada)", res_a.get('waze_link', '#'))
-                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                st.link_button("🗺️ Ruta en Google Maps Camión A", res_a.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
 
 
         with col_b:
@@ -336,11 +319,10 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (LAS 3 OPCIONES)
+                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps (Multi-Parada)", res_b.get('gmaps_link', '#'))
-                st.link_button("🔵 Ruta en Waze (Solo 1ra Parada)", res_b.get('waze_link', '#'))
-                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+                st.link_button("🗺️ Ruta en Google Maps Camión B", res_b.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -375,3 +357,5 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
+
