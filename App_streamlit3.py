@@ -314,8 +314,8 @@ if page == "Calcular Nueva Ruta":
                     if results['ruta_a'].get('orden_optimo'):
                         results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                         results['ruta_a']['mapycz_link'] = generate_mapycz_link(results['ruta_a']['orden_optimo']) 
-                        results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo']) # NUEVO
-                        results['ruta_a']['bing_link'] = generate_bing_link(results['ruta_a']['orden_optimo']) # NUEVO
+                        results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo']) 
+                        results['ruta_a']['bing_link'] = generate_bing_link(results['ruta_a']['orden_optimo']) 
                     else:
                         st.warning("Advertencia: No se pudo optimizar la Ruta A. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
                         results['ruta_a']['gmaps_link'] = '#'
@@ -326,8 +326,8 @@ if page == "Calcular Nueva Ruta":
                     if results['ruta_b'].get('orden_optimo'):
                         results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
                         results['ruta_b']['mapycz_link'] = generate_mapycz_link(results['ruta_b']['orden_optimo'])
-                        results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo']) # NUEVO
-                        results['ruta_b']['bing_link'] = generate_bing_link(results['ruta_b']['orden_optimo']) # NUEVO
+                        results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo']) 
+                        results['ruta_b']['bing_link'] = generate_bing_link(results['ruta_b']['orden_optimo']) 
                     else:
                         st.warning("Advertencia: No se pudo optimizar la Ruta B. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
                         results['ruta_b']['gmaps_link'] = '#'
@@ -378,8 +378,8 @@ if page == "Calcular Nueva Ruta":
         # GUARDIA ADICIONAL: Solo intentamos renderizar si tenemos rutas completas
         if not (res_a and res_b):
              st.error("Error: La estructura de resultados está incompleta.")
-             return
-
+             st.stop() # <-- Uso correcto de st.stop()
+        
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
