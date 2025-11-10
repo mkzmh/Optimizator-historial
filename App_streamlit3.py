@@ -1,9 +1,9 @@
 import streamlit as st
-import time 
+import time 
 import pandas as pd
 from datetime import date
 # Importa la lógica y constantes del módulo vecino
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN 
 
 # =============================================================================
 # FUNCIONES AUXILIARES DE ENLACES (Agregadas)
@@ -158,8 +158,8 @@ if page == "Calcular Nueva Ruta":
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
                     
-                    # 2. Gaia GPS (Usa el mismo URL que GeoJSON)
-                    # NOTA: GeoJSON.io se usa como host para ver/obtener el GeoJSON
+                    # 2. Gaia GPS (Usa el mismo URL que GeoJSON/geojson_link)
+                    # NOTA: Se asume que 'geojson_link' es devuelto por solve_route_optimization.
                     results['ruta_a']['gaia_link'] = results['ruta_a'].get('geojson_link', '#') 
                     results['ruta_b']['gaia_link'] = results['ruta_b'].get('geojson_link', '#') 
 
@@ -303,5 +303,3 @@ elif page == "Estadísticas":
 
     else:
         st.info("No hay datos en el historial para generar estadísticas.")
-
-
