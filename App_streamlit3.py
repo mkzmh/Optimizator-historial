@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime # Importación actualizada para usar la hora
-import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
+from datetime import datetime
+import pytz 
 import os
 import time
 import json
-import gspread # Necesario para la conexión a Google Sheets
+import gspread 
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
@@ -28,7 +28,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Encabezados en el orden de Google Sheets
-# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
@@ -63,11 +62,8 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-# La función generate_waze_link ha sido eliminada.
-
-
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
-
+# ... (Funciones get_gspread_client, get_history_data, save_new_route_to_sheet) ...
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """Establece la conexión con Google Sheets usando variables de secrets separadas."""
@@ -253,9 +249,14 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    # GeoJSON y Gaia GPS comparten el mismo URL para descarga/importación
+                    results['ruta_a']['geojson_link'] = results['ruta_a'].get('geojson_link', '#') 
+                    results['ruta_a']['gaia_link'] = results['ruta_a'].get('geojson_link', '#') 
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['geojson_link'] = results['ruta_b'].get('geojson_link', '#') 
+                    results['ruta_b']['gaia_link'] = results['ruta_b'].get('geojson_link', '#')
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -305,12 +306,16 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps Camión A", res_a.get('gmaps_link', '#'))
-                st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
-
-
+                # OPCIÓN 1: Google Maps (Navegación por voz, respeta origen)
+                st.link_button("🗺️ Ruta en Google Maps (Multi-Parada)", res_a.get('gmaps_link', '#'))
+                
+                # OPCIÓN 2: GeoJSON (Referencia y descarga)
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                
+                # OPCIÓN 3: Gaia GPS (Importación de la ruta exacta)
+                st.link_button("🌲 Ruta en Gaia GPS (Importar GeoJSON)", res_a.get('gaia_link', '#'))
+        
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
@@ -319,11 +324,17 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps Camión B", res_b.get('gmaps_link', '#'))
-                st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+                # OPCIÓN 1: Google Maps (Navegación por voz, respeta origen)
+                st.link_button("🗺️ Ruta en Google Maps (Multi-Parada)", res_b.get('gmaps_link', '#'))
+                
+                # OPCIÓN 2: GeoJSON (Referencia y descarga)
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+                
+                # OPCIÓN 3: Gaia GPS (Importación de la ruta exacta)
+                st.link_button("🌲 Ruta en Gaia GPS (Importar GeoJSON)", res_b.get('gaia_link', '#'))
 
+    # Si no hay resultados y la página carga por primera vez
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
 
@@ -357,4 +368,3 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
-
