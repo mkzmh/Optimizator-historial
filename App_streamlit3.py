@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime # Importación actualizada para usar la hora
-import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
+from datetime import datetime
+import pytz
 import os
 import time
 import json
-import gspread # Necesario para la conexión a Google Sheets
+import gspread
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
@@ -32,12 +32,12 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
-# --- Funciones Auxiliares para Navegación ---
+# --- Funciones Auxiliares para Navegación (Solo las solicitadas) ---
 
 def generate_gmaps_link(stops_order):
     """
     Genera un enlace de Google Maps para una ruta con múltiples paradas.
-    La ruta comienza en el origen (Ingenio) y regresa a él.
+    La ruta comienza en el origen (Ingenio y regresa a él.
     """
     if not stops_order:
         return '#'
@@ -63,7 +63,21 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-# La función generate_waze_link ha sido eliminada.
+def generate_mapycz_link(stops_order):
+    """
+    Genera un enlace web de Mapy.cz centrado en la última parada.
+    Mapy.cz es un servicio excelente para rutas y tracks definidos.
+    """
+    if not stops_order:
+        return '#'
+    
+    last_stop_lote = stops_order[-1]
+    if last_stop_lote in COORDENADAS_LOTES:
+        lon, lat = COORDENADAS_LOTES[last_stop_lote]
+        # Formato de URL de Mapy.cz para abrir una ubicación
+        return f"https://mapy.cz/turisticka?x={lon}&y={lat}&z=10"
+    
+    return "https://mapy.cz/turisticka"
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -251,11 +265,25 @@ if page == "Calcular Nueva Ruta":
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
-                    # Ruta A
-                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    # Solo generamos los enlaces solicitados: Google Maps y Mapy.cz
+                    if results['ruta_a'].get('orden_optimo'):
+                        results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                        results['ruta_a']['mapycz_link'] = generate_mapycz_link(results['ruta_a']['orden_optimo']) 
+                    else:
+                        st.warning("Advertencia: No se pudo optimizar la Ruta A. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
+                        results['ruta_a']['gmaps_link'] = '#'
+                        results['ruta_a']['mapycz_link'] = '#'
+
+                    if results['ruta_b'].get('orden_optimo'):
+                        results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                        results['ruta_b']['mapycz_link'] = generate_mapycz_link(results['ruta_b']['orden_optimo'])
+                    else:
+                        st.warning("Advertencia: No se pudo optimizar la Ruta B. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
+                        results['ruta_b']['gmaps_link'] = '#'
+                        results['ruta_b']['mapycz_link'] = '#'
                     
-                    # Ruta B
-                    results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    # Para GeoJSON, asumimos que 'geojson_link' se establece en solve_route_optimization
+                    # Si no está, el botón usará el fallback '#'.
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -278,22 +306,31 @@ if page == "Calcular Nueva Ruta":
 
             except Exception as e:
                 st.session_state.results = None
-                st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}")
+                # st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}") # Descomentar para debugging
+                st.error("❌ Ocurrió un error inesperado durante el ruteo. Verifique la entrada de lotes y el módulo de lógica de ruteo.")
+
 
     # -------------------------------------------------------------------------
     # 2. REPORTE DE RESULTADOS UNIFICADO
     # -------------------------------------------------------------------------
 
+    # ESTA CONDICIÓN ES CLAVE: SOLO SE MUESTRA SI HAY RESULTADOS
     if st.session_state.results:
         results = st.session_state.results
+
+        # Definimos res_a y res_b aquí por si la estructura de results es parcial
+        res_a = results.get('ruta_a', {})
+        res_b = results.get('ruta_b', {})
+        
+        # GUARDIA ADICIONAL: Solo intentamos renderizar si tenemos rutas completas
+        if not (res_a and res_b):
+             st.error("Error: La estructura de resultados está incompleta.")
+             return
 
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
         st.divider()
-
-        res_a = results.get('ruta_a', {})
-        res_b = results.get('ruta_b', {})
 
         col_a, col_b = st.columns(2)
 
@@ -305,10 +342,21 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
-                st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps Camión A", res_a.get('gmaps_link', '#'))
-                st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+            # 👇 ENLACES DE NAVEGACIÓN 
+            st.markdown("---")
+            
+            # Fila para los botones de navegación (3 columnas: Google Maps, Mapy.cz, GeoJSON)
+            col_btn_a_1, col_btn_a_2, col_btn_a_3 = st.columns(3)
+
+            with col_btn_a_1:
+                st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a")
+            
+            with col_btn_a_2:
+                st.link_button("🌲 Mapy.cz", res_a.get('mapycz_link', '#'), key="mapycz_a") 
+            
+            with col_btn_a_3:
+                # Asumimos que 'geojson_link' está en los resultados de la lógica de ruteo
+                st.link_button("🌐 GeoJSON (Track)", res_a.get('geojson_link', '#'), key="geojson_a")
 
 
         with col_b:
@@ -319,10 +367,21 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
-                st.markdown("---")
-                st.link_button("🗺️ Ruta en Google Maps Camión B", res_b.get('gmaps_link', '#'))
-                st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+            # 👇 ENLACES DE NAVEGACIÓN 
+            st.markdown("---")
+            
+            # Fila para los botones de navegación (3 columnas: Google Maps, Mapy.cz, GeoJSON)
+            col_btn_b_1, col_btn_b_2, col_btn_b_3 = st.columns(3)
+            
+            with col_btn_b_1:
+                st.link_button("🗺️ Google Maps", res_b.get('gmaps_link', '#'), key="gmaps_b")
+
+            with col_btn_b_2:
+                st.link_button("🌲 Mapy.cz", res_b.get('mapycz_link', '#'), key="mapycz_b")
+            
+            with col_btn_b_3:
+                # Asumimos que 'geojson_link' está en los resultados de la lógica de ruteo
+                st.link_button("🌐 GeoJSON (Track)", res_b.get('geojson_link', '#'), key="geojson_b")
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
