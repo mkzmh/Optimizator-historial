@@ -335,13 +335,13 @@ if page == "Calcular Nueva Ruta":
                 col_btn_a_1, col_btn_a_2, col_btn_a_3 = st.columns(3)
 
                 with col_btn_a_1:
-                    st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'))
+                    st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a") # Se agregó key
                 
                 with col_btn_a_2:
-                    st.link_button("🧭 Gaia GPS", res_a.get('gaia_link', '#')) # NUEVO BOTÓN
+                    st.link_button("🧭 Gaia GPS", res_a.get('gaia_link', '#'), key="gaia_a") # NUEVO BOTÓN
                 
                 with col_btn_a_3:
-                    st.link_button("🌐 GeoJSON.io (Track)", res_a.get('geojson_link', '#'))
+                    st.link_button("🌐 GeoJSON.io (Track)", res_a.get('geojson_link', '#'), key="geojson_a") # Se agregó key
 
 
         with col_b:
