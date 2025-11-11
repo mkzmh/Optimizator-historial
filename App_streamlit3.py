@@ -10,7 +10,7 @@ import gspread # Necesario para la conexión a Google Sheets
 # Importa la lógica y constantes del módulo vecino
 # ASUMIMOS que 'routing_logic3.py' está en el mismo directorio.
 # Nota: La importación se ajustó a 'routing_logic3' para coincidir con la convención.
-from routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
@@ -423,3 +423,4 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
