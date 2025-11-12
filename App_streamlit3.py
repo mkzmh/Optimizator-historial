@@ -6,6 +6,9 @@ import os
 import time
 import json
 import gspread # Necesario para la conexión a Google Sheets
+import requests # ¡NUEVO! Para la conexión con API de rastreo (Praxys)
+import folium # ¡NUEVO! Para generar mapas interactivos
+from streamlit_folium import folium_static # ¡NUEVO! Para mostrar mapas de Folium
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
@@ -62,9 +65,6 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
-
-# La función generate_waze_link ha sido eliminada.
-
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
 
@@ -147,6 +147,151 @@ def save_new_route_to_sheet(new_route_data):
 
 
 # -------------------------------------------------------------------------
+# FUNCIONES ESPECÍFICAS DE RASTREO Y MAPAS (Folium)
+# -------------------------------------------------------------------------
+
+@st.cache_data(ttl=3) # Cache por 3 segundos para simular tiempo de API
+def fetch_praxys_location(camion_id, use_simulation=True):
+    """
+    [PUNTO CLAVE DE MODIFICACIÓN]
+    Obtiene la ubicación GPS (latitud, longitud) del vehículo real o simulado.
+    El usuario debe reemplazar la SIMULACIÓN (sección B) con la conexión a la API REAL (sección A).
+    """
+    
+    # ---------------------------------------------------------------------
+    # A. LÓGICA DE CONEXIÓN REAL A PRAXYS (Requiere edición del usuario)
+    # ---------------------------------------------------------------------
+    if not use_simulation:
+        try:
+            # 1. Obtener Token y configurar IDs
+            api_token = st.secrets.get("PRAXYS_API_TOKEN", "TOKEN_NO_CONFIGURADO")
+            if api_token == "TOKEN_NO_CONFIGURADO" or api_token == "PEGA_AQUÍ_TU_TOKEN_REAL_DE_PRAXYS":
+                # Retorna el origen como ubicación estática si la API no está configurada
+                return COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0] 
+            
+            # 2. Configurar la URL con el ID del vehículo real
+            # --- REEMPLAZAR ID_REAL_CAMION_X con el ID de rastreo que Praxys usa ---
+            VEHICLE_TRACKING_ID = "ID_REAL_CAMION_A" if camion_id == 'A' else "ID_REAL_CAMION_B" 
+            API_URL = f"https://api.praxys.com/v1/vehicles/{VEHICLE_TRACKING_ID}/lastlocation" # <<< REEMPLAZAR CON LA URL DE TU SERVICIO
+            
+            HEADERS = {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/json"
+            }
+            
+            # 3. Llamada a la API
+            response = requests.get(API_URL, headers=HEADERS, timeout=5)
+            response.raise_for_status() 
+            data = response.json()
+            
+            # 4. PARSEAR LA RESPUESTA REAL DE PRAXYS
+            # --- ATENCIÓN: AJUSTAR ESTAS CLAVES CON LA RESPUESTA JSON REAL DE PRAXYS ---
+            # Ejemplo: Si Praxys devuelve {"latitude": -24.8, "longitude": -65.4}
+            lat = data.get('lat') # Cambiar 'lat' a la clave real de latitud
+            lon = data.get('lon') # Cambiar 'lon' a la clave real de longitud
+            # --------------------------------------------------------------------
+            
+            if lat is not None and lon is not None:
+                return float(lat), float(lon)
+            
+            st.warning(f"Praxys devolvió datos, pero no se pudo parsear lat/lon para Camión {camion_id}.")
+            return None, None
+            
+        except requests.exceptions.RequestException as e:
+            st.warning(f"❌ Error de conexión con Praxys para Camión {camion_id}: {e}")
+            return None, None
+        except Exception as e:
+            st.warning(f"❌ Error inesperado al procesar la respuesta de Praxys: {e}")
+            return None, None
+            
+    # ---------------------------------------------------------------------
+    # B. LÓGICA DE SIMULACIÓN (PARA PRUEBAS)
+    # ---------------------------------------------------------------------
+    else:
+        # Usa el estado de sesión para simular movimiento
+        if f'sim_step_{camion_id}' not in st.session_state:
+            st.session_state[f'sim_step_{camion_id}'] = 0
+            st.session_state[f'sim_start_lat_{camion_id}'] = COORDENADAS_ORIGEN[1] # lat
+            st.session_state[f'sim_start_lon_{camion_id}'] = COORDENADAS_ORIGEN[0] # lon
+            
+        step = st.session_state[f'sim_step_{camion_id}']
+        
+        # Simulación de movimiento diagonal desde el origen (Ingenio)
+        # El movimiento es exagerado para que sea visible en el mapa.
+        lat_movement = 0.00005 * step
+        lon_movement = 0.00008 * step
+        
+        # Mueve el punto de inicio para la próxima iteración
+        st.session_state[f'sim_step_{camion_id}'] += 1
+        
+        # El siguiente punto es la latitud/longitud de inicio + el movimiento simulado
+        return st.session_state[f'sim_start_lat_{camion_id}'] + lat_movement, \
+               st.session_state[f'sim_start_lon_{camion_id}'] + lon_movement
+
+
+def create_route_map(route_data_a, route_data_b, camion_location_a=None, camion_location_b=None):
+    """
+    Genera un mapa Folium con la visualización de las dos rutas y los marcadores
+    de ubicación de los camiones (si están disponibles).
+    """
+    # 1. Inicializar el mapa
+    center_lat = COORDENADAS_ORIGEN[1]
+    center_lon = COORDENADAS_ORIGEN[0]
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles='OpenStreetMap')
+
+    # 2. Función auxiliar para dibujar rutas y marcadores
+    def draw_route(map_obj, route_data, color, camion_id):
+        if not route_data or not route_data.get('orden_optimo'):
+            return
+
+        # Coordenadas de la ruta optimizada (Ingenio -> Lotes -> Ingenio)
+        route_coords = [[COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]]] # Inicio en Ingenio (lat, lon)
+        for lote in route_data['orden_optimo']:
+            lon, lat = COORDENADAS_LOTES.get(lote, (None, None))
+            if lat is not None:
+                route_coords.append([lat, lon]) # lat, lon
+                
+                # Marcar lotes
+                folium.Marker([lat, lon], 
+                              popup=f"Lote: {lote} ({camion_id})",
+                              tooltip=lote,
+                              icon=folium.Icon(color=color, icon='cube', prefix='fa')).add_to(map_obj)
+                
+        # Regreso al origen (opcional, pero ayuda a cerrar el circuito visual)
+        route_coords.append([COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]])
+
+        # Dibujar la línea de la ruta
+        folium.PolyLine(route_coords, color=color, weight=4, opacity=0.7).add_to(map_obj)
+
+    # 3. Dibujar Rutas A y B
+    draw_route(m, route_data_a, 'blue', 'Camión 1 (A)')
+    draw_route(m, route_data_b, 'red', 'Camión 2 (B)')
+
+    # 4. Marcar Origen (Ingenio)
+    folium.Marker([COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]], 
+                  popup='INGENIO (Origen)', 
+                  icon=folium.Icon(color='green', icon='home', prefix='fa')).add_to(m)
+
+    # 5. Marcar Ubicación de Camiones (Rastreo en vivo/simulado)
+    # Camión A
+    if camion_location_a and camion_location_a[0] is not None:
+        lat, lon = camion_location_a
+        folium.Marker([lat, lon],
+                      popup=f"Camión 1 (A) - GPS: {lat:.5f}, {lon:.5f}",
+                      tooltip="Camión 1 (Rastreo)",
+                      icon=folium.Icon(color='darkblue', icon='truck', prefix='fa')).add_to(m)
+
+    # Camión B
+    if camion_location_b and camion_location_b[0] is not None:
+        lat, lon = camion_location_b
+        folium.Marker([lat, lon],
+                      popup=f"Camión 2 (B) - GPS: {lat:.5f}, {lon:.5f}",
+                      tooltip="Camión 2 (Rastreo)",
+                      icon=folium.Icon(color='darkred', icon='truck', prefix='fa')).add_to(m)
+
+    return m
+
+# -------------------------------------------------------------------------
 # INICIALIZACIÓN DE LA SESIÓN
 # -------------------------------------------------------------------------
 
@@ -159,15 +304,29 @@ if 'historial_cargado' not in st.session_state:
 
 if 'results' not in st.session_state:
     st.session_state.results = None
-
+    
+# Inicializar el modo de rastreo (Simulación por defecto)
+if 'tracking_mode' not in st.session_state:
+    st.session_state.tracking_mode = 'Simulación'
+    
+# Inicializar el estado de la simulación
+if 'is_simulating' not in st.session_state:
+    st.session_state.is_simulating = False
+    
+# Inicializar los pasos de simulación para cada camión
+for camion_id in ['A', 'B']:
+    if f'sim_step_{camion_id}' not in st.session_state:
+        st.session_state[f'sim_step_{camion_id}'] = 0
+        
 # =============================================================================
 # ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
 # =============================================================================
 
 st.sidebar.title("Menú Principal")
+# MODIFICACIÓN: Agregamos la nueva página de Rastreo
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial"]
+    ["Calcular Nueva Ruta", "Historial", "🗺️ Vista de Despacho (Seguimiento)"]
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -210,6 +369,7 @@ if page == "Calcular Nueva Ruta":
     with col_map:
         if valid_stops_count > 0:
             st.subheader(f"Mapa de {valid_stops_count} Destinos")
+            # Usamos st.map simple para la pre-visualización
             st.map(map_data, latitude='lat', longitude='lon', color='#0044FF', size=10, zoom=10)
         else:
             st.info("Ingrese lotes válidos para ver la previsualización del mapa.")
@@ -245,7 +405,8 @@ if page == "Calcular Nueva Ruta":
 
         with st.spinner('Realizando cálculo óptimo y agrupando rutas'):
             try:
-                results = solve_route_optimization(all_stops_to_visit)
+                # Se asume que solve_route_optimization funciona y devuelve 'results'
+                results = solve_route_optimization(all_stops_to_visit) 
 
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
@@ -344,16 +505,105 @@ elif page == "Historial":
 
         # Muestra el DF, usando los nombres amigables
         st.dataframe(df_historial,
-                     use_container_width=True,
-                     column_config={
-                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "Lotes_CamionA": "Lotes Camión A",
-                         "Lotes_CamionB": "Lotes Camión B",
-                         "Fecha": "Fecha",
-                         "Hora": "Hora de Carga", # Nombre visible en Streamlit
-                         "Lotes_ingresados": "Lotes Ingresados"
-                      })
+                      use_container_width=True,
+                      column_config={
+                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                          "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                          "Lotes_CamionA": "Lotes Camión A",
+                          "Lotes_CamionB": "Lotes Camión B",
+                          "Fecha": "Fecha",
+                          "Hora": "Hora de Carga", # Nombre visible en Streamlit
+                          "Lotes_ingresados": "Lotes Ingresados"
+                       })
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+        
+
+# =============================================================================
+# 4. PÁGINA: VISTA DE DESPACHO (SEGUIMIENTO)
+# =============================================================================
+
+elif page == "🗺️ Vista de Despacho (Seguimiento)":
+    st.header("🗺️ Rastreo en Vivo sobre Ruta Optimizada")
+    
+    # 1. Verificar si hay rutas calculadas
+    if not st.session_state.results:
+        st.warning("⚠️ Debe calcular una ruta óptima primero en la página 'Calcular Nueva Ruta' para activar el rastreo.")
+        # Muestra un mapa base simple
+        m = create_route_map(None, None)
+        folium_static(m, width=1000, height=600)
+        st.stop()
+    
+    results = st.session_state.results
+    
+    st.info("Presione el botón 'Actualizar' para ver el movimiento en el modo Simulación.")
+    
+    col_mode, col_update = st.columns([1, 1])
+
+    with col_mode:
+        # Toggle para cambiar entre simulación y API real
+        tracking_mode = st.radio(
+            "Modo de Rastreo:",
+            ['Simulación', 'API Real (Praxys)'],
+            key='tracking_mode',
+            horizontal=True
+        )
+    
+    use_simulation = (tracking_mode == 'Simulación')
+    
+    # 2. Obtener ubicaciones y Recargar la página automáticamente/manualmente
+    
+    # Botón para forzar la actualización en modo Simulación
+    if use_simulation:
+        if col_update.button("Actualizar Posición (Simulación)", type='primary'):
+            # El hecho de que se presione el botón ya fuerza un re-run.
+            # Solo incrementamos el contador para simular movimiento.
+            st.session_state.is_simulating = True
+        else:
+            st.session_state.is_simulating = False
+            
+        if st.session_state.is_simulating:
+            # Incrementa los pasos de simulación para que la función fetch mueva el camión
+            st.session_state[f'sim_step_A'] += 1
+            st.session_state[f'sim_step_B'] += 1
+            st.info("Simulación activa. Presione 'Actualizar' para mover los camiones.")
+    else:
+        # En modo API Real, el cache ttl=3 ya maneja la actualización (cada 3 segundos)
+        # Y solo mostramos un mensaje
+        col_update.empty()
+        st.info("Modo API Real activo. La posición se actualizará automáticamente cada 3 segundos.")
+    
+    
+    # 2.1 Obtener ubicación de Camión A
+    lat_a, lon_a = fetch_praxys_location('A', use_simulation=use_simulation)
+    
+    # 2.2 Obtener ubicación de Camión B
+    lat_b, lon_b = fetch_praxys_location('B', use_simulation=use_simulation)
+    
+    # 2.3 Generar y mostrar el mapa
+    st.subheader("Ubicación Actual vs. Ruta")
+    
+    # Crea el mapa con las ubicaciones actuales
+    map_to_display = create_route_map(
+        results.get('ruta_a'), 
+        results.get('ruta_b'), 
+        camion_location_a=(lat_a, lon_a),
+        camion_location_b=(lat_b, lon_b)
+    )
+    
+    # Muestra el mapa Folium en Streamlit
+    folium_static(map_to_display, width=1000, height=600)
+    
+    # 2.4 Mostrar detalles de ubicación
+    col_loc_a, col_loc_b = st.columns(2)
+    with col_loc_a:
+        if lat_a is not None:
+            st.metric("Camión 1 (A) - GPS", f"Lat: {lat_a:.5f} / Lon: {lon_a:.5f}")
+        else:
+            st.warning("Ubicación de Camión A no disponible.")
+    with col_loc_b:
+        if lat_b is not None:
+            st.metric("Camión 2 (B) - GPS", f"Lat: {lat_b:.5f} / Lon: {lon_b:.5f}")
+        else:
+            st.warning("Ubicación de Camión B no disponible.")
