@@ -11,6 +11,7 @@ import folium # Necesario para la visualización exacta de la ruta
 from streamlit_folium import folium_static # Necesario para renderizar Folium
 
 # Importa la lógica y constantes del módulo vecino
+# Asegúrate de que este archivo 'Routing_logic3' esté en el mismo directorio.
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
@@ -64,33 +65,30 @@ def generate_gmaps_link(stops_order):
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
 
-# [FUNCIÓN CLAVE CORREGIDA] - Llamada a la API de OpenRouteService
+# [FUNCIÓN CLAVE CON CORRECCIÓN Y DEPURACIÓN] - Llamada a la API de OpenRouteService
 def get_ors_route_data(stops_order):
     """
     Llama a la API de OpenRouteService para obtener la geometría exacta de la ruta.
-    
-    Retorna:
-        distancia_km (float): Distancia total calculada.
-        geojson_coords (list): Lista de coordenadas (lat, lon) de la ruta.
-        gmaps_url (str): Enlace Deep Link para el móvil (usamos GMaps como fallback de navegación).
     """
     if not stops_order or not ORS_TOKEN or ORS_TOKEN == "TU_CLAVE_ORS_AQUI":
         return None, None, "#"
 
-    # ORS espera las coordenadas en una lista de listas [[lon1, lat1], [lon2, lat2], ...]
+    # 1. Definir los puntos en formato ORS (longitud, latitud)
     points = [COORDENADAS_ORIGEN] # Inicio
     for lote in stops_order:
         if lote in COORDENADAS_LOTES:
             points.append(COORDENADAS_LOTES[lote])
     points.append(COORDENADAS_ORIGEN) # Regreso al origen
 
-    # Construir el cuerpo de la solicitud JSON
-    # NOTA: En la documentación de ORS, el token va en el encabezado 'Authorization'
-    # y el tipo de contenido debe ser JSON.
+    # --- LÍNEA DE DEPURACIÓN TEMPORAL (Muestra las coordenadas enviadas) ---
+    st.info(f"Coordenadas enviadas a ORS (Lon, Lat): {points}") 
+    # -----------------------------------------------------------------------
+
+    # 2. Construir el cuerpo de la solicitud JSON y encabezados
     headers = {
-        'Accept': 'application/json, application/geo+json, application/gpx+xml, application/x-protobuf',
+        'Accept': 'application/json',
         'Authorization': ORS_TOKEN,
-        'Content-Type': 'application/json; charset=utf-8' # Aseguramos el tipo de contenido
+        'Content-Type': 'application/json; charset=utf-8'
     }
     
     body = {
@@ -99,63 +97,34 @@ def get_ors_route_data(stops_order):
     }
 
     try:
-        # Usamos requests.post ya que estamos enviando un cuerpo JSON
         response = requests.post(ORS_DIRECTIONS_URL, headers=headers, json=body)
-        response.raise_for_status() # Lanza un error para códigos 4xx/5xx
+        response.raise_for_status()
 
         data = response.json()
 
         if not data.get('routes'):
-            st.error("ORS no pudo calcular la ruta con los puntos proporcionados. Revise los lotes.")
+            # El servidor respondió OK, pero no pudo encontrar la ruta.
+            st.error("ORS no pudo calcular la ruta. Esto puede deberse a que las coordenadas están fuera de la red de carreteras o son inaccesibles.")
             return None, None, "#"
 
         route = data['routes'][0]
         
-        # Extraer la distancia y la geometría
+        # 3. Extraer la distancia y la geometría
         distancia_km = route['summary']['distance']
         
         # ORS devuelve la geometría en [lon, lat], la convertimos a [lat, lon] para Folium
         geojson_coords = [[lat, lon] for lon, lat in route['geometry']['coordinates']]
         
-        # Generar URL de Navegación con Google Maps (usado como Deep Link)
+        # 4. Generar URL de Navegación con Google Maps
         gmaps_url = generate_gmaps_link(stops_order) 
         
         return distancia_km, geojson_coords, gmaps_url
 
     except requests.exceptions.HTTPError as e:
-        # Se detalla mejor el error para el usuario
-        error_message = f"Error de API de OpenRouteService: {e.response.status_code}. Mensaje del servidor: {e.response.reason}"
-        if e.response.status_code == 406:
-            st.error(f"❌ Error 406: La solicitud no es aceptable. Verifique que el token sea correcto y que los headers son válidos.")
-        elif e.response.status_code == 403:
-             st.error(f"❌ Error 403: Token inválido o sin privilegios.")
-        elif e.response.status_code == 404:
-            st.error(f"❌ Error 404: Ruta no encontrada. Verifique las coordenadas.")
-        else:
-            st.error(f"❌ Error HTTP {e.response.status_code}: {e.response.reason}")
-        
+        st.error(f"❌ Error HTTP {e.response.status_code}: {e.response.reason}. Verifique su clave o límites de uso.")
         return None, None, "#"
     except Exception as e:
         st.error(f"❌ Error general al conectar con ORS: {e}")
-        return None, None, "#"
-        route = data['routes'][0]
-        
-        # Extraer la distancia y la geometría
-        distancia_km = route['summary']['distance']
-        
-        # ORS devuelve la geometría en [lon, lat], la convertimos a [lat, lon] para Folium
-        geojson_coords = [[lat, lon] for lon, lat in route['geometry']['coordinates']]
-        
-        # Generar URL de Navegación con Google Maps (usado como Deep Link)
-        gmaps_url = generate_gmaps_link(stops_order) 
-        
-        return distancia_km, geojson_coords, gmaps_url
-
-    except requests.exceptions.HTTPError as e:
-        st.error(f"Error de API de OpenRouteService: {e.response.status_code}. Verifique su clave o límite de uso. {e}")
-        return None, None, "#"
-    except Exception as e:
-        st.error(f"Error al conectar con ORS: {e}")
         return None, None, "#"
 
 
@@ -386,7 +355,7 @@ if page == "Calcular Nueva Ruta":
         res_a = results.get('ruta_a', {})
         res_b = results.get('ruta_b', {})
         
-        # [NUEVO] - Mapa de Visualización de las Rutas con Folium
+        # Mapa de Visualización de las Rutas con Folium
         col_mapa_viz, col_vacio = st.columns([1,1])
         with col_mapa_viz:
             st.subheader("Mapa Interactivo de Rutas Calculadas (Folium)")
@@ -496,4 +465,3 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
-
