@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import pytz
+from datetime import datetime # Importación actualizada para usar la hora
+import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
 import os
 import time
 import json
 import gspread # Necesario para la conexión a Google Sheets
 
-# Importa la lógica y constantes del módulo vecino
-# ASUMIMOS que 'routing_logic3.py' está en el mismo directorio.
-# Nota: La importación se ajustó a 'routing_logic3' para coincidir con la convención.
+# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
@@ -21,42 +19,16 @@ st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
 # --- ZONA HORARIA ARGENTINA (GMT-3) ---
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires") # Define la zona horaria de Buenos Aires
 
-# Ocultar menú de Streamlit y footer y AÑADIR ESTILOS DE BOTÓN PROMINENTE
+# Ocultar menú de Streamlit y footer
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    /* Estilo para hacer el botón de Iniciar Ruta más prominente */
-    .stLinkButton > button {
-        font-size: 1.1rem;
-        font-weight: bold;
-        padding: 0.75rem 1.5rem;
-        background-color: #4CAF50 !important; /* Verde vibrante */
-        color: white !important;
-        border-radius: 0.5rem;
-        border: none;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        transition: all 0.2s;
-    }
-    .stLinkButton > button:hover {
-        background-color: #45a049 !important;
-        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-    }
-    /* Estilo para los botones secundarios (GeoJSON, Routific) */
-    .stLinkButton.secondary button {
-        background-color: #007bff !important; /* Azul para Routific */
-        color: white !important;
-        font-weight: normal;
-        padding: 0.5rem 1rem;
-        font-size: 1.0rem;
-    }
-    .stLinkButton.secondary button:hover {
-        background-color: #0056b3 !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
 # Encabezados en el orden de Google Sheets
+# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
@@ -90,6 +62,8 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
+
+# La función generate_waze_link ha sido eliminada.
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -203,8 +177,23 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 # =============================================================================
 
 if page == "Calcular Nueva Ruta":
+    
+    # --- [MODIFICACIÓN: LOGO AÚN MÁS A LA DERECHA] ---
+    # Ajustamos las columnas a [3, 4, 0.05]. 
+    # El 3 es el espaciador izquierdo (empuja el logo), el 4 es el espacio del logo.
+    col_left, col_logo, col_right = st.columns([3, 4, 0.05]) 
+    
+    with col_logo:
+        # 1. Logo con ancho fijo (400px) para darle un estilo "más angosto"
+        st.image("https://raw.githubusercontent.com/mkzmh/Optimizator-historial/main/LOGO%20CN%20GRUPO%20A%20COLOR.png", 
+                 width=400) # ANCHO FIJO DE 400px
+    
+    # 2. Títulos debajo del logo (en el ancho completo de la columna principal)
     st.title("🚚 Optimizator📍")
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
+
+    st.markdown("---") # Separador visual
+    # ---------------------------------------------------
 
     st.header("Selección de Destinos")
 
@@ -236,9 +225,7 @@ if page == "Calcular Nueva Ruta":
     with col_map:
         if valid_stops_count > 0:
             st.subheader(f"Mapa de {valid_stops_count} Destinos")
-            # Ajustar el zoom si solo hay 1 parada además del origen
-            zoom_level = 10 if valid_stops_count > 1 else 13
-            st.map(map_data, latitude='lat', longitude='lon', color='#0044FF', size=10, zoom=zoom_level)
+            st.map(map_data, latitude='lat', longitude='lon', color='#0044FF', size=10, zoom=10)
         else:
             st.info("Ingrese lotes válidos para ver la previsualización del mapa.")
 
@@ -273,7 +260,6 @@ if page == "Calcular Nueva Ruta":
 
         with st.spinner('Realizando cálculo óptimo y agrupando rutas'):
             try:
-                # Llama a la lógica de optimización (simulada o Routific real)
                 results = solve_route_optimization(all_stops_to_visit)
 
                 if "error" in results:
@@ -282,21 +268,20 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    # Añadir un enlace GeoJSON de ejemplo (asumiendo que en una versión futura se genera GeoJSON)
+                    results['ruta_a']['geojson_link'] = '#' # Placeholder
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['geojson_link'] = '#' # Placeholder
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
-                    # Corregido para guardar la lista de lotes como string separado por coma, no como str(list)
-                    lotes_a_str = ', '.join(results['ruta_a']['lotes_asignados'])
-                    lotes_b_str = ', '.join(results['ruta_b']['lotes_asignados'])
-                    
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
                         "Hora": current_time.strftime("%H:%M:%S"), # << Usa la hora ya en la zona horaria correcta
                         "Lotes_ingresados": ", ".join(all_stops_to_visit),
-                        "Lotes_CamionA": lotes_a_str,
-                        "Lotes_CamionB": lotes_b_str,
+                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
+                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
                         "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
                         "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
                     }
@@ -333,61 +318,40 @@ if page == "Calcular Nueva Ruta":
         with col_a:
             st.subheader(f"🚛 Camión 1: {res_a.get('patente', 'N/A')}")
             with st.container(border=True):
-                lotes_a = res_a.get('lotes_asignados', [])
-                orden_a = res_a.get('orden_optimo', [])
-                
-                st.markdown(f"**Total Lotes:** {len(lotes_a)}")
+                st.markdown(f"**Total Lotes:** {len(res_a.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_a.get('distancia_km', 'N/A')} km**")
+                st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
+                st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-                if lotes_a:
-                    st.markdown(f"**Lotes Asignados:** `{' → '.join(lotes_a)}`")
-                    st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(orden_a)} → Ingenio")
-                else:
-                    st.info("No se asignaron lotes a este vehículo.")
-                
+                # Botón principal INICIAR RUTA
                 st.markdown("---")
-                # 👇 BOTÓN DE INICIO DE RUTA (Más visible y directo)
-                if len(orden_a) > 0:
-                    st.link_button("🚀 Iniciar Ruta Camión A (Google Maps)", res_a.get('gmaps_link', '#'), type="primary")
-                    
-                    # Contenedor para botones secundarios
-                    st.markdown('<div class="stLinkButton secondary">', unsafe_allow_html=True)
-                    st.link_button("🔗 Abrir en Routific Beta", "https://app.routific.com/", help="Abre el dashboard de Routific para ver la ruta si fue sincronizada.", use_container_width=True)
-                    st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'), help="Descargar la ruta como archivo GeoJSON.", use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                else:
-                    st.button("Ruta A Inactiva", disabled=True, use_container_width=True)
-
-
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN A", 
+                    res_a.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
-                lotes_b = res_b.get('lotes_asignados', [])
-                orden_b = res_b.get('orden_optimo', [])
-                
-                st.markdown(f"**Total Lotes:** {len(lotes_b)}")
+                st.markdown(f"**Total Lotes:** {len(res_b.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A')} km**")
+                st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
+                st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-                if lotes_b:
-                    st.markdown(f"**Lotes Asignados:** `{' → '.join(lotes_b)}`")
-                    st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(orden_b)} → Ingenio")
-                else:
-                    st.info("No se asignaron lotes a este vehículo.")
-
+                # Botón principal INICIAR RUTA
                 st.markdown("---")
-                # 👇 BOTÓN DE INICIO DE RUTA (Más visible y directo)
-                if len(orden_b) > 0:
-                    st.link_button("🚀 Iniciar Ruta Camión B (Google Maps)", res_b.get('gmaps_link', '#'), type="primary")
-                    
-                    # Contenedor para botones secundarios
-                    st.markdown('<div class="stLinkButton secondary">', unsafe_allow_html=True)
-                    st.link_button("🔗 Abrir en Routific Beta", "https://app.routific.com/", help="Abre el dashboard de Routific para ver la ruta si fue sincronizada.", use_container_width=True)
-                    st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'), help="Descargar la ruta como archivo GeoJSON.", use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
-                else:
-                    st.button("Ruta B Inactiva", disabled=True, use_container_width=True)
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN B", 
+                    res_b.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -402,25 +366,23 @@ elif page == "Historial":
 
     # Se recarga el historial de Google Sheets para garantizar que está actualizado
     df_historial = get_history_data()
-    # Asegura que el historial de sesión refleje la base de datos
-    st.session_state.historial_rutas = df_historial.to_dict('records') 
+    st.session_state.historial_rutas = df_historial.to_dict('records') # Sincroniza la sesión
 
     if not df_historial.empty:
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
 
         # Muestra el DF, usando los nombres amigables
         st.dataframe(df_historial,
-                     use_container_width=True,
-                     column_config={
-                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "Lotes_CamionA": "Lotes Camión A",
-                         "Lotes_CamionB": "Lotes Camión B",
-                         "Fecha": "Fecha",
-                         "Hora": "Hora de Carga", # Nombre visible en Streamlit
-                         "Lotes_ingresados": "Lotes Ingresados"
+                      use_container_width=True,
+                      column_config={
+                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                          "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                          "Lotes_CamionA": "Lotes Camión A",
+                          "Lotes_CamionB": "Lotes Camión B",
+                          "Fecha": "Fecha",
+                          "Hora": "Hora de Carga", # Nombre visible en Streamlit
+                          "Lotes_ingresados": "Lotes Ingresados"
                       })
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
-
