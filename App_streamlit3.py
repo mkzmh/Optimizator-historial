@@ -1,30 +1,23 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import pytz
+from datetime import datetime # Importación actualizada para usar la hora
+import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
 import os
 import time
 import json
-import gspread
-import requests
-import folium 
-from streamlit_folium import folium_static 
+import gspread # Necesario para la conexión a Google Sheets
 
-# Importa la lógica y constantes del módulo vecino
+# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
 
 # =============================================================================
-# CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (API KEYS)
+# CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
 # =============================================================================
 
 st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
 
 # --- ZONA HORARIA ARGENTINA (GMT-3) ---
-ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
-
-# --- CONFIGURACIÓN ORS ---
-ORS_TOKEN = st.secrets.get("OPENROUTESERVICE_API_KEY", "TU_CLAVE_ORS_AQUI")
-ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car/geojson" 
+ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires") # Define la zona horaria de Buenos Aires
 
 # Ocultar menú de Streamlit y footer
 st.markdown("""
@@ -34,143 +27,52 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Encabezados en el orden de Google Sheets
+# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
 
 
-# --- Funciones Auxiliares ---
+# --- Funciones Auxiliares para Navegación ---
 
-def generate_gmaps_link(stops_order, include_return=True):
+def generate_gmaps_link(stops_order):
     """
-    Genera un enlace de Google Maps con múltiples paradas.
-    Se usa como Deep Link de navegación para el móvil.
+    Genera un enlace de Google Maps para una ruta con múltiples paradas.
+    La ruta comienza en el origen (Ingenio) y regresa a él.
     """
     if not stops_order:
         return '#'
 
     # COORDENADAS_ORIGEN es (lon, lat). GMaps requiere lat,lon.
     lon_orig, lat_orig = COORDENADAS_ORIGEN
-    route_parts = [f"{lat_orig},{lon_orig}"]
     
+    # 1. Punto de partida (Ingenio)
+    # 2. Puntos intermedios (Paradas optimizadas)
+    # 3. Punto de destino final (Volver al Ingenio)
+    
+    route_parts = [f"{lat_orig},{lon_orig}"] # Origen
+    
+    # Añadir paradas intermedias
     for stop_lote in stops_order:
         if stop_lote in COORDENADAS_LOTES:
             lon, lat = COORDENADAS_LOTES[stop_lote]
-            route_parts.append(f"{lat},{lon}")
+            route_parts.append(f"{lat},{lon}") # lat,lon
 
-    if include_return:
-        route_parts.append(f"{lat_orig},{lon_orig}")
+    # Añadir destino final (regreso al origen)
+    route_parts.append(f"{lat_orig},{lon_orig}")
 
-    return f"https://www.google.com/maps/dir/{'/'.join(route_parts)}"
+    # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
+    return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-def get_points_list(stops_order, include_return=False):
-    """Prepara la lista de puntos [[lon, lat], ...] para la API."""
-    points = [COORDENADAS_ORIGEN]
-    for lote in stops_order:
-        if lote in COORDENADAS_LOTES:
-            points.append(COORDENADAS_LOTES[lote])
-    if include_return:
-        points.append(COORDENADAS_ORIGEN)
-    return points
-
-# --------------------------------------------------------------------------
-# Motores de Ruteo
-# --------------------------------------------------------------------------
-
-def get_ors_route_data(stops_order):
-    """
-    Llama a OpenRouteService usando el token como parámetro de URL (solución robusta).
-    """
-    if not ORS_TOKEN or ORS_TOKEN == "TU_CLAVE_ORS_AQUI":
-        return {"error": "ORS: Clave API no configurada."}
-    
-    if not stops_order: # Manejar el caso de una ruta vacía
-         return {"error": "ORS: La lista de paradas está vacía."}
-
-    # 1. Definir los puntos (NO incluimos el retorno al origen para evitar fallos de ruta cerrada)
-    points = get_points_list(stops_order, include_return=False) 
-    
-    # --- LÍNEA DE DEPURACIÓN TEMPORAL (Muestra las coordenadas enviadas) ---
-    st.info(f"Coordenadas enviadas a ORS (Lon, Lat): {points}") 
-    # -----------------------------------------------------------------------
-    
-    # 2. Definir los encabezados y el cuerpo de la solicitud JSON
-    headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json; charset=utf-8'
-    }
-    
-    body = {
-        "coordinates": points,
-        "units": "km"
-    }
-    
-    # 3. Construir la URL con el token como parámetro de consulta (SOLUCIÓN CLAVE)
-    url_with_key = f"{ORS_DIRECTIONS_URL}?api_key={ORS_TOKEN}"
-
-    try:
-        # Añadir el timeout de 30 segundos
-        response = requests.post(url_with_key, headers=headers, json=body, timeout=30) 
-        response.raise_for_status()
-
-        data = response.json()
-
-        if not data.get('routes'):
-            st.error("❌ ORS: No se encontró una ruta viable. Esto puede deberse a caminos inaccesibles o a restricciones de la red.")
-            return {"error": "ORS: Ruta no encontrada/inaccesible"}
-
-        route = data['routes'][0]
-        distancia_km = route['summary']['distance']
-        
-        # Las coordenadas de la ruta de ORS (GeoJSON)
-        # Se necesita añadir el retorno al origen manualmente para Folium
-        geojson_coords = [[lat, lon] for lon, lat in route['geometry']['coordinates']]
-        geojson_coords.append([COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]]) # Agregar retorno para visualización
-        
-        return {"distance": distancia_km, "geojson": geojson_coords}
-
-    except requests.exceptions.Timeout:
-         # Capturar el error de timeout específicamente
-         st.error("❌ Fallo ORS: Timeout. La ruta tardó demasiado en calcularse. Intente menos lotes o caminos menos complejos.")
-         return {"error": "ORS: Timeout"}
-    except requests.exceptions.HTTPError as e:
-        st.error(f"❌ Fallo ORS: HTTP Error {e.response.status_code}: {e.response.reason}. Verifique su clave o límites de uso.")
-        return {"error": f"ORS HTTP Error {e.response.status_code}"}
-    except Exception as e:
-        st.error(f"❌ Fallo ORS: Error general de conexión: {e}")
-        return {"error": f"ORS General Error: {e}"}
-
-
-def calculate_route_geometry(stops_order):
-    """Intenta calcular la geometría solo con ORS y gestiona el fallback."""
-    result = {"distance": None, "geojson": None, "source": "GeoJSON de Emergencia"}
-    
-    # 1. Intentar con OpenRouteService (ORS)
-    ors_res = get_ors_route_data(stops_order)
-    if "error" not in ors_res:
-        st.success("✅ Ruta calculada con OpenRouteService.")
-        result["distance"] = ors_res["distance"]
-        result["geojson"] = ors_res["geojson"]
-        result["source"] = "OpenRouteService"
-        return result
-    else:
-        # Si ORS falla, el mensaje de error ya se mostró arriba.
-        pass
-    
-    # 2. Fallback a GeoJSON de Emergencia (Línea Recta simple)
-    st.error("🚨 El ruteo avanzado falló. Usando GeoJSON de Emergencia (líneas rectas).")
-    
-    # Generar la GeoJSON de emergencia (líneas rectas entre puntos)
-    points = get_points_list(stops_order, include_return=True) 
-    result["geojson"] = [[lat, lon] for lon, lat in points] # [lat, lon] para Folium
-    result["distance"] = 0 
-    
-    return result
+# La función generate_waze_link ha sido eliminada.
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
 
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
+    """Establece la conexión con Google Sheets usando variables de secrets separadas."""
     try:
+        # Crea el diccionario de credenciales a partir de los secrets individuales
         credentials_dict = {
             "type": "service_account",
             "project_id": st.secrets["gsheets_project_id"],
@@ -184,6 +86,8 @@ def get_gspread_client():
             "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{st.secrets['gsheets_client_email']}",
             "universe_domain": "googleapis.com"
         }
+
+        # Usa service_account_from_dict para autenticar
         gc = gspread.service_account_from_dict(credentials_dict)
         return gc
     except KeyError as e:
@@ -195,32 +99,49 @@ def get_gspread_client():
 
 @st.cache_data(ttl=3600)
 def get_history_data():
+    """Lee el historial de Google Sheets."""
     client = get_gspread_client()
     if not client:
         return pd.DataFrame(columns=COLUMNS)
+
     try:
         sh = client.open_by_url(st.secrets["GOOGLE_SHEET_URL"])
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
+
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
+
+        # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
         if df.empty or len(df.columns) < len(COLUMNS):
             return pd.DataFrame(columns=COLUMNS)
         return df
+
     except Exception as e:
+        # Puede fallar si la hoja no está compartida
         st.error(f"❌ Error al cargar datos de Google Sheets. Asegure permisos para {st.secrets['gsheets_client_email']}: {e}")
         return pd.DataFrame(columns=COLUMNS)
 
 def save_new_route_to_sheet(new_route_data):
+    """Escribe una nueva ruta a Google Sheets."""
     client = get_gspread_client()
     if not client:
         st.warning("No se pudo guardar la ruta por fallo de conexión a Google Sheets.")
         return
+
     try:
         sh = client.open_by_url(st.secrets["GOOGLE_SHEET_URL"])
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
+
+        # gspread necesita una lista de valores en el orden de las COLUMNS
+        # El orden es crucial: [Fecha, Hora, Lotes_ingresados, ...]
         values_to_save = [new_route_data[col] for col in COLUMNS]
+
+        # Añade la fila al final de la hoja
         worksheet.append_row(values_to_save)
+
+        # Invalida la caché para que la próxima lectura traiga el dato nuevo
         st.cache_data.clear()
+
     except Exception as e:
         st.error(f"❌ Error al guardar datos en Google Sheets. Verifique que la Fila 1 tenga 7 columnas: {e}")
 
@@ -229,23 +150,15 @@ def save_new_route_to_sheet(new_route_data):
 # INICIALIZACIÓN DE LA SESIÓN
 # -------------------------------------------------------------------------
 
+# Inicializar el estado de la sesión para guardar el historial PERMANENTE
 if 'historial_cargado' not in st.session_state:
-    df_history = get_history_data() 
+    df_history = get_history_data() # Ahora carga de Google Sheets
+    # Convertimos el DataFrame a lista de diccionarios para la sesión
     st.session_state.historial_rutas = df_history.to_dict('records')
     st.session_state.historial_cargado = True
 
 if 'results' not in st.session_state:
     st.session_state.results = None
-
-# Inicializar estados de GeoJSON Override
-if 'geojson_override_a' not in st.session_state:
-    st.session_state.geojson_override_a = ''
-if 'geojson_override_b' not in st.session_state:
-    st.session_state.geojson_override_b = ''
-# Bandera para saber si el cálculo de la sesión falló
-if 'ors_failed' not in st.session_state:
-    st.session_state.ors_failed = False
-
 
 # =============================================================================
 # ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
@@ -327,65 +240,38 @@ if page == "Calcular Nueva Ruta":
     if st.button("🚀 Calcular Rutas Óptimas", key="calc_btn_main", type="primary", disabled=calculate_disabled):
 
         st.session_state.results = None
-        st.session_state.ors_failed = False # Resetear bandera de fallo
+        # 👇 Captura la fecha y hora con la zona horaria argentina
         current_time = datetime.now(ARG_TZ) 
-
-        # Verificar si la clave de ORS está configurada
-        is_ors_configured = ORS_TOKEN != "TU_CLAVE_ORS_AQUI"
-
-        if not is_ors_configured:
-             st.warning("⚠️ ¡Atención! OpenRouteService no está configurado. La distancia en el reporte es solo una estimación. Usando Google Maps para los enlaces de navegación.")
 
         with st.spinner('Realizando cálculo óptimo y agrupando rutas'):
             try:
-                # 1. Resolver el problema TSP
                 results = solve_route_optimization(all_stops_to_visit)
 
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
-                    # 2. Obtener la geometría y distancia exacta con ORS/Fallback
+                    # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
+                    # Ruta A
+                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     
-                    # --- CAMIÓN A ---
-                    orden_a = results['ruta_a']['orden_optimo']
-                    geo_a_res = calculate_route_geometry(orden_a)
-                    
-                    results['ruta_a']['geojson'] = geo_a_res["geojson"]
-                    if geo_a_res["distance"]:
-                         results['ruta_a']['distancia_km'] = geo_a_res["distance"] 
-                    results['ruta_a']['nav_link'] = generate_gmaps_link(orden_a, include_return=True)
-                    results['ruta_a']['source'] = geo_a_res["source"]
+                    # Ruta B
+                    results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
 
-                    if geo_a_res["source"] != "OpenRouteService":
-                        st.session_state.ors_failed = True
-                    
-                    # --- CAMIÓN B ---
-                    orden_b = results['ruta_b']['orden_optimo']
-                    geo_b_res = calculate_route_geometry(orden_b)
-                    
-                    results['ruta_b']['geojson'] = geo_b_res["geojson"] 
-                    if geo_b_res["distance"]:
-                         results['ruta_b']['distancia_km'] = geo_b_res["distance"] 
-                    results['ruta_b']['nav_link'] = generate_gmaps_link(orden_b, include_return=True)
-                    results['ruta_b']['source'] = geo_b_res["source"]
-
-                    if geo_b_res["source"] != "OpenRouteService":
-                        st.session_state.ors_failed = True
-                    
-                    # 3. Guardar en Sheets
+                    # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
-                        "Hora": current_time.strftime("%H:%M:%S"),
+                        "Hora": current_time.strftime("%H:%M:%S"), # << Usa la hora ya en la zona horaria correcta
                         "Lotes_ingresados": ", ".join(all_stops_to_visit),
-                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']),
-                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']),
+                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
+                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
                         "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
                         "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
                     }
 
+                    # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
                     save_new_route_to_sheet(new_route)
 
-                    # 4. Actualizar Estado de la Sesión
+                    # ACTUALIZA EL ESTADO DE LA SESIÓN
                     st.session_state.historial_rutas.append(new_route)
                     st.session_state.results = results
                     st.success("✅ Cálculo finalizado y rutas optimizadas. Datos guardados permanentemente en Google Sheets.")
@@ -401,54 +287,6 @@ if page == "Calcular Nueva Ruta":
     if st.session_state.results:
         results = st.session_state.results
 
-        # Si ORS falló, intentar aplicar GeoJSON de override
-        if st.session_state.ors_failed and (st.session_state.geojson_override_a or st.session_state.geojson_override_b):
-            st.warning("🔄 Aplicando GeoJSON de anulación. Recalculando visualización...")
-            
-            # Intento de cargar GeoJSON A
-            if st.session_state.geojson_override_a:
-                try:
-                    # El usuario pega la geometría, necesitamos solo la lista de coordenadas [[lat, lon], ...]
-                    geojson_data = json.loads(st.session_state.geojson_override_a)
-                    if 'routes' in geojson_data and geojson_data['routes']:
-                        coords = geojson_data['routes'][0]['geometry']['coordinates']
-                        # Convertir [lon, lat] a [lat, lon] y añadir retorno
-                        results['ruta_a']['geojson'] = [[lat, lon] for lon, lat in coords]
-                        results['ruta_a']['geojson'].append([COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]])
-                        results['ruta_a']['source'] = "Manual Override A"
-                    elif isinstance(geojson_data, list): # Si pegan solo la lista de coordenadas
-                        results['ruta_a']['geojson'] = geojson_data
-                        results['ruta_a']['source'] = "Manual Override A (Lista)"
-                    else:
-                        st.error("Error al parsear GeoJSON A. Asegúrese de que es GeoJSON de ruta o una lista de coordenadas.")
-                        
-                except json.JSONDecodeError:
-                    st.error("Error al leer el JSON de anulación del Camión A. Verifique el formato.")
-                except Exception as e:
-                    st.error(f"Error al procesar el GeoJSON A: {e}")
-
-            # Intento de cargar GeoJSON B
-            if st.session_state.geojson_override_b:
-                try:
-                    geojson_data = json.loads(st.session_state.geojson_override_b)
-                    if 'routes' in geojson_data and geojson_data['routes']:
-                        coords = geojson_data['routes'][0]['geometry']['coordinates']
-                        results['ruta_b']['geojson'] = [[lat, lon] for lon, lat in coords]
-                        results['ruta_b']['geojson'].append([COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]])
-                        results['ruta_b']['source'] = "Manual Override B"
-                    elif isinstance(geojson_data, list):
-                        results['ruta_b']['geojson'] = geojson_data
-                        results['ruta_b']['source'] = "Manual Override B (Lista)"
-                    else:
-                        st.error("Error al parsear GeoJSON B. Asegúrese de que es GeoJSON de ruta o una lista de coordenadas.")
-
-                except json.JSONDecodeError:
-                    st.error("Error al leer el JSON de anulación del Camión B. Verifique el formato.")
-                except Exception as e:
-                    st.error(f"Error al procesar el GeoJSON B: {e}")
-            
-            # La visualización se actualizará automáticamente en el siguiente bloque
-
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
@@ -456,105 +294,35 @@ if page == "Calcular Nueva Ruta":
 
         res_a = results.get('ruta_a', {})
         res_b = results.get('ruta_b', {})
-        
-        # Mapa de Visualización de las Rutas con Folium
-        col_mapa_viz, col_vacio = st.columns([1,1])
-        with col_mapa_viz:
-            st.subheader("Mapa Interactivo de Rutas Calculadas (Folium)")
-            if not res_a.get('geojson') or not res_b.get('geojson') or res_a.get('source') == 'GeoJSON de Emergencia':
-                # Mensaje de advertencia si falló la carga 
-                st.warning("No hay datos de geometría de ruta para mostrar. **Verifique sus credenciales y la accesibilidad de los caminos en OpenStreetMap.**")
 
-                # --- MÓDULO DE OVERRIDE (SOLO VISIBLE SI EL CÁLCULO FALLÓ) ---
-                if st.session_state.ors_failed:
-                    with st.expander("🛠️ PEGAR GEOJSON DE ANULACIÓN (Override)", expanded=True):
-                        st.caption("Si la ruta funciona en la web de ORS, péguela aquí para visualizarla.")
-                        
-                        col_o1, col_o2 = st.columns(2)
-                        with col_o1:
-                            st.session_state.geojson_override_a = st.text_area(
-                                "GeoJSON Camión A (Pegue el JSON o lista de coordenadas)",
-                                value=st.session_state.geojson_override_a,
-                                height=150,
-                                key="override_a"
-                            )
-                        with col_o2:
-                            st.session_state.geojson_override_b = st.text_area(
-                                "GeoJSON Camión B (Pegue el JSON o lista de coordenadas)",
-                                value=st.session_state.geojson_override_b,
-                                height=150,
-                                key="override_b"
-                            )
-                        st.button("Aplicar GeoJSON Manual", key="apply_override")
-                # --- FIN MÓDULO DE OVERRIDE ---
-            else:
-                # Si la geometría existe, se dibuja el mapa
-                lon_center, lat_center = COORDENADAS_ORIGEN
-                
-                m = folium.Map(
-                    location=[lat_center, lon_center], 
-                    zoom_start=11, 
-                    tiles="CartoDB positron"
-                )
-                
-                # Marcar Origen
-                folium.Marker([lat_center, lon_center], tooltip="Ingenio (Origen)", icon=folium.Icon(color='green', icon='home')).add_to(m)
-
-                # Dibuja Ruta A
-                folium.PolyLine(res_a['geojson'], color="blue", weight=5, opacity=0.8, tooltip=f"Camión A ({res_a['source']})").add_to(m)
-                
-                # Dibuja Ruta B
-                folium.PolyLine(res_b['geojson'], color="red", weight=5, opacity=0.8, tooltip=f"Camión B ({res_b['source']})").add_to(m)
-
-                # Añadir marcadores de paradas
-                all_stops = res_a.get('orden_optimo', []) + res_b.get('orden_optimo', [])
-                for i, lote in enumerate(all_stops):
-                    if lote in COORDENADAS_LOTES:
-                        lon, lat = COORDENADAS_LOTES[lote]
-                        color = 'blue' if lote in res_a.get('orden_optimo', []) else 'red'
-                        folium.Marker([lat, lon], tooltip=f"{lote} ({i+1})", icon=folium.Icon(color=color, icon='truck')).add_to(m)
-                
-                folium_static(m, width=700, height=500)
-
-        st.divider()
         col_a, col_b = st.columns(2)
 
         with col_a:
             st.subheader(f"🚛 Camión 1: {res_a.get('patente', 'N/A')}")
             with st.container(border=True):
                 st.markdown(f"**Total Lotes:** {len(res_a.get('lotes_asignados', []))}")
-                st.markdown(f"**Distancia Total (Vial):** **{res_a.get('distancia_km', 'N/A')} km**")
+                st.markdown(f"**Distancia Total (TSP):** **{res_a.get('distancia_km', 'N/A')} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-                st.link_button(
-                    "🚀 INICIAR RECORRIDO A (Navegación)", 
-                    res_a.get('nav_link', '#'),
-                    type="primary", 
-                    use_container_width=True
-                )
+                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.markdown(f"**Fuente de Ruta (Visualización):** **{res_a.get('source', 'N/A')}**")
-                st.link_button("🗺️ Ver en Google Maps (Alternativa)", generate_gmaps_link(res_a.get('orden_optimo', [])))
+                st.link_button("🗺️ Ruta en Google Maps Camión A", res_a.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
 
 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
                 st.markdown(f"**Total Lotes:** {len(res_b.get('lotes_asignados', []))}")
-                st.markdown(f"**Distancia Total (Vial):** **{res_b.get('distancia_km', 'N/A')} km**")
+                st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A')} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-                st.link_button(
-                    "🚀 INICIAR RECORRIDO B (Navegación)", 
-                    res_b.get('nav_link', '#'), 
-                    type="primary", 
-                    use_container_width=True
-                )
+                # 👇 ENLACES DE NAVEGACIÓN (Solo Google Maps)
                 st.markdown("---")
-                st.markdown(f"**Fuente de Ruta (Visualización):** **{res_b.get('source', 'N/A')}**")
-                st.link_button("🗺️ Ver en Google Maps (Alternativa)", generate_gmaps_link(res_b.get('orden_optimo', [])))
+                st.link_button("🗺️ Ruta en Google Maps Camión B", res_b.get('gmaps_link', '#'))
+                st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -567,22 +335,24 @@ if page == "Calcular Nueva Ruta":
 elif page == "Historial":
     st.header("📋 Historial de Rutas Calculadas")
 
+    # Se recarga el historial de Google Sheets para garantizar que está actualizado
     df_historial = get_history_data()
-    st.session_state.historial_rutas = df_historial.to_dict('records')
+    st.session_state.historial_rutas = df_historial.to_dict('records') # Sincroniza la sesión
 
     if not df_historial.empty:
         st.subheader(f"Total de {len(df_historial)} Rutas Guardadas")
 
+        # Muestra el DF, usando los nombres amigables
         st.dataframe(df_historial,
-                      use_container_width=True,
-                      column_config={
-                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                          "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                          "Lotes_CamionA": "Lotes Camión A",
-                          "Lotes_CamionB": "Lotes Camión B",
-                          "Fecha": "Fecha",
-                          "Hora": "Hora de Carga",
-                          "Lotes_ingresados": "Lotes Ingresados"
+                     use_container_width=True,
+                     column_config={
+                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                         "Lotes_CamionA": "Lotes Camión A",
+                         "Lotes_CamionB": "Lotes Camión B",
+                         "Fecha": "Fecha",
+                         "Hora": "Hora de Carga", # Nombre visible en Streamlit
+                         "Lotes_ingresados": "Lotes Ingresados"
                       })
 
     else:
