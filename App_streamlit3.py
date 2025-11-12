@@ -64,7 +64,7 @@ def generate_gmaps_link(stops_order):
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
 
-# [FUNCIÓN CLAVE] - Llamada a la API de OpenRouteService
+# [FUNCIÓN CLAVE CORREGIDA] - Llamada a la API de OpenRouteService
 def get_ors_route_data(stops_order):
     """
     Llama a la API de OpenRouteService para obtener la geometría exacta de la ruta.
@@ -85,10 +85,12 @@ def get_ors_route_data(stops_order):
     points.append(COORDENADAS_ORIGEN) # Regreso al origen
 
     # Construir el cuerpo de la solicitud JSON
+    # NOTA: En la documentación de ORS, el token va en el encabezado 'Authorization'
+    # y el tipo de contenido debe ser JSON.
     headers = {
-        'Accept': 'application/json',
+        'Accept': 'application/json, application/geo+json, application/gpx+xml, application/x-protobuf',
         'Authorization': ORS_TOKEN,
-        'Content-Type': 'application/json; charset=utf-8'
+        'Content-Type': 'application/json; charset=utf-8' # Aseguramos el tipo de contenido
     }
     
     body = {
@@ -97,14 +99,45 @@ def get_ors_route_data(stops_order):
     }
 
     try:
+        # Usamos requests.post ya que estamos enviando un cuerpo JSON
         response = requests.post(ORS_DIRECTIONS_URL, headers=headers, json=body)
-        response.raise_for_status()
+        response.raise_for_status() # Lanza un error para códigos 4xx/5xx
+
         data = response.json()
 
         if not data.get('routes'):
             st.error("ORS no pudo calcular la ruta con los puntos proporcionados. Revise los lotes.")
             return None, None, "#"
 
+        route = data['routes'][0]
+        
+        # Extraer la distancia y la geometría
+        distancia_km = route['summary']['distance']
+        
+        # ORS devuelve la geometría en [lon, lat], la convertimos a [lat, lon] para Folium
+        geojson_coords = [[lat, lon] for lon, lat in route['geometry']['coordinates']]
+        
+        # Generar URL de Navegación con Google Maps (usado como Deep Link)
+        gmaps_url = generate_gmaps_link(stops_order) 
+        
+        return distancia_km, geojson_coords, gmaps_url
+
+    except requests.exceptions.HTTPError as e:
+        # Se detalla mejor el error para el usuario
+        error_message = f"Error de API de OpenRouteService: {e.response.status_code}. Mensaje del servidor: {e.response.reason}"
+        if e.response.status_code == 406:
+            st.error(f"❌ Error 406: La solicitud no es aceptable. Verifique que el token sea correcto y que los headers son válidos.")
+        elif e.response.status_code == 403:
+             st.error(f"❌ Error 403: Token inválido o sin privilegios.")
+        elif e.response.status_code == 404:
+            st.error(f"❌ Error 404: Ruta no encontrada. Verifique las coordenadas.")
+        else:
+            st.error(f"❌ Error HTTP {e.response.status_code}: {e.response.reason}")
+        
+        return None, None, "#"
+    except Exception as e:
+        st.error(f"❌ Error general al conectar con ORS: {e}")
+        return None, None, "#"
         route = data['routes'][0]
         
         # Extraer la distancia y la geometría
@@ -463,3 +496,4 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+
