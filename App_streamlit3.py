@@ -253,9 +253,12 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    # Añadir un enlace GeoJSON de ejemplo (asumiendo que en una versión futura se genera GeoJSON)
+                    results['ruta_a']['geojson_link'] = '#' # Placeholder
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['geojson_link'] = '#' # Placeholder
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -313,8 +316,8 @@ if page == "Calcular Nueva Ruta":
                     type="primary", 
                     use_container_width=True
                 )
-                # Opcional: mostrar un enlace secundario a GeoJSON si estuviera implementado
-                # st.link_button("🌐 GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
                 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
@@ -332,8 +335,8 @@ if page == "Calcular Nueva Ruta":
                     type="primary", 
                     use_container_width=True
                 )
-                # Opcional: mostrar un enlace secundario a GeoJSON si estuviera implementado
-                # st.link_button("🌐 GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
