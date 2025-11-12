@@ -14,7 +14,7 @@ from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES
 # CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
 # =============================================================================
 
-st.set_page_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
+st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
 
 # --- ZONA HORARIA ARGENTINA (GMT-3) ---
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires") # Define la zona horaria de Buenos Aires
@@ -178,14 +178,14 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 
 if page == "Calcular Nueva Ruta":
     
-    # --- [MODIFICACIÓN: LOGO CON TAMAÑO AUMENTADO Y CENTRADO] ---
-    # Ajustamos las columnas para un logo más grande (700px)
-    col_left, col_logo, col_right = st.columns([0.5, 4, 0.5])
+    # --- [MODIFICACIÓN: LOGO CON TAMAÑO AJUSTADO] ---
+    # Ajustamos las columnas a [0.2, 4, 0.2] para maximizar el espacio central.
+    col_left, col_logo, col_right = st.columns([0.2, 4, 0.2])
     
     with col_logo:
-        # 1. Logo con ancho fijo (700px)
+        # 1. Logo con ancho fijo (600px)
         st.image("https://raw.githubusercontent.com/mkzmh/Optimizator-historial/main/LOGO%20CN%20GRUPO%20A%20COLOR.png", 
-                 width=700) # ANCHO AUMENTADO A 700
+                 width=600) # ANCHO AJUSTADO A 600
     
     # 2. Títulos debajo del logo (en el ancho completo de la columna principal)
     st.title("🚚 Optimizator📍")
