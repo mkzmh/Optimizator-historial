@@ -546,15 +546,6 @@ elif page == "Estadísticas":
                     'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
             )
-
-            # Gráfico de Lotes Mensuales
-            st.markdown("##### Total de Lotes Asignados por Mes")
-            st.bar_chart(
-                monthly_stats,
-                x='Mes_str',
-                y='Lotes_Asignados_Total',
-                color='#00CC78' # Un solo color verde
-            )
-        
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
