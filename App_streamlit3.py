@@ -167,7 +167,7 @@ if 'results' not in st.session_state:
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial"]
+    ["Calcular Nueva Ruta", "Historial","Estadisticas"]
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -385,4 +385,66 @@ elif page == "Historial":
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+# =============================================================================
+# 4. PÁGINA: ESTADÍSTICAS (NUEVA)
+# =============================================================================
+
+elif page == "Estadísticas":
+    st.header("📊 Estadísticas de Ruteo")
+    
+    df_historial = get_history_data()
+    stats = calculate_statistics(df_historial)
+    
+    if stats["total_rutas"] == 0:
+        st.info("No hay datos de rutas guardadas para generar estadísticas.")
+    else:
+        st.subheader("Resumen General")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total de Rutas Procesadas", stats["total_rutas"])
+            
+        with col2:
+            st.metric("Kilómetros Totales Recorridos", f"{stats['total_km']:.2f} km")
+            
+        st.divider()
+
+        # --- Estadísticas Mensuales (Con Gráfico) ---
+        st.subheader("Análisis Mensual de Kilometraje")
+        
+        df_monthly = stats["monthly_stats"]
+        if not df_monthly.empty:
+            # Reordenar para el gráfico
+            df_chart = df_monthly.rename(columns={'KmCamionA': 'Camión A (km)', 'KmCamionB': 'Camión B (km)'})
+            
+            # Gráfico de barras apiladas
+            st.bar_chart(df_chart, x='Mes', y=['Camión A (km)', 'Camión B (km)'], height=350) # 
+
+            # Mostrar tabla mensual
+            st.dataframe(df_monthly, use_container_width=True, 
+                         column_config={
+                             "KmCamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                             "KmCamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                             "KmTotalMes": st.column_config.NumberColumn("KM Total Mes", format="%.2f km"),
+                             "Rutas": "Total Rutas",
+                             "Mes": "Mes"
+                         })
+        
+        st.divider()
+
+        # --- Estadísticas Diarias (Solo Tabla) ---
+        st.subheader("Detalle Diario")
+        
+        df_daily = stats["daily_stats"]
+        if not df_daily.empty:
+            st.dataframe(df_daily, use_container_width=True, 
+                         column_config={
+                             "KmCamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                             "KmCamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                             "KmTotalDia": st.column_config.NumberColumn("KM Total Día", format="%.2f km"),
+                             "Rutas": "Total Rutas",
+                             "Día": st.column_config.DateColumn("Día", format="YYYY-MM-DD")
+                         })
+
 
