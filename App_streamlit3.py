@@ -107,6 +107,12 @@ def get_history_data():
 
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
+        
+        # --- VERIFICACIÓN CLAVE (Para evitar KeyError) ---
+        if 'Lotes_ingresados' not in df.columns:
+            st.warning("⚠️ Error en Historial: La columna 'Lotes_ingresados' no fue encontrada en Google Sheets. Verifique la primera fila.")
+            return pd.DataFrame(columns=COLUMNS)
+        # ------------------------------------------------
 
         # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
         if df.empty or len(df.columns) < len(COLUMNS):
@@ -173,6 +179,7 @@ def calculate_statistics(df):
             return 0 # En caso de error de formato
 
     # Aplicamos las funciones para obtener los conteos
+    # st.cache_data.clear() # **Se eliminó para evitar conflictos de caché**
     df['Total_Lotes_Ingresados'] = df['Lotes_ingresados'].apply(count_total_lotes_input)
     df['Lotes_CamionA_Count'] = df['Lotes_CamionA'].apply(count_assigned_lotes)
     df['Lotes_CamionB_Count'] = df['Lotes_CamionB'].apply(count_assigned_lotes)
@@ -213,6 +220,9 @@ def calculate_statistics(df):
 
 # Inicializar el estado de la sesión para guardar el historial PERMANENTE
 if 'historial_cargado' not in st.session_state:
+    # --- LIMPIEZA DE CACHÉ DE DATOS AL INICIO (para evitar el KeyError) ---
+    st.cache_data.clear() 
+    # ----------------------------------------------------------------------
     df_history = get_history_data() # Ahora carga de Google Sheets
     # Convertimos el DataFrame a lista de diccionarios para la sesión
     st.session_state.historial_rutas = df_history.to_dict('records')
@@ -452,10 +462,16 @@ elif page == "Historial":
 # =============================================================================
 
 elif page == "Estadísticas":
+    
+    # --- Limpieza de caché para el análisis ---
+    st.cache_data.clear()
+    # ----------------------------------------
+    
     st.header("📊 Estadísticas de Ruteo")
     st.caption("Análisis diario y mensual de la actividad de optimización.")
 
     # Recarga el historial de Google Sheets para garantizar que está actualizado
+    # La limpieza de caché garantiza que se obtengan los encabezados correctos.
     df_historial = get_history_data()
 
     if df_historial.empty:
