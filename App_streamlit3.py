@@ -27,8 +27,23 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Encabezados en el orden de Google Sheets
+# Encabezados en el orden de Google Sheets para GUARDAR DATOS FUTUROS
+# NOTA: Usamos los nombres que DEBERÍAN ser para guardar nuevos datos, pero usamos
+# los nombres de la hoja para leer los datos históricos en get_history_data.
 COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
+
+# --- Mapeo de nombres de columna de Google Sheets (usando los nombres de la imagen) ---
+SHEET_COLUMN_MAP = {
+    "Fecha": "Fecha",
+    "Hora": "Hora",
+    "Lotesingresados": "Lotes_ingresados",
+    "⌚ Lotes_CamionA": "Lotes_CamionA",
+    "Lotes_CamionB": "Lotes_CamionB",
+    "# Km_CamionA": "KmRecorridos_CamionA",
+    "# Km_CamionB": "KmRecorridos_CamionB",
+    "Km Totales": "Km_Total_Hoja" # No lo usamos directamente, pero es útil si está
+}
+# --------------------------------------------------------------------------------------
 
 
 # --- Funciones Auxiliares para Navegación ---
@@ -96,7 +111,7 @@ def get_gspread_client():
 
 @st.cache_data(ttl=3600)
 def get_history_data():
-    """Lee el historial de Google Sheets."""
+    """Lee el historial de Google Sheets y renombra las columnas."""
     client = get_gspread_client()
     if not client:
         return pd.DataFrame(columns=COLUMNS)
@@ -108,14 +123,30 @@ def get_history_data():
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
         
-        # --- VERIFICACIÓN CLAVE (Para evitar KeyError) ---
-        if 'Lotes_ingresados' not in df.columns:
-            st.warning("⚠️ Error en Historial: La columna 'Lotes_ingresados' no fue encontrada en Google Sheets. Verifique la primera fila.")
-            return pd.DataFrame(columns=COLUMNS)
-        # ------------------------------------------------
+        # Renombrar columnas del DF cargado a nombres limpios esperados por Python
+        df.rename(columns={v: k for k, v in SHEET_COLUMN_MAP.items()}, inplace=True)
+        df.rename(columns={k:v for k,v in SHEET_COLUMN_MAP.items()}, inplace=True)
+
+        # Ahora mapeamos los nombres sucios a los nombres limpios esperados por Python
+        column_mapping = {sheet_name: python_name for python_name, sheet_name in zip(COLUMNS, SHEET_COLUMN_MAP.keys())}
+        df.rename(columns={v: k for k, v in SHEET_COLUMN_MAP.items()}, inplace=True)
+        df.rename(columns={k:v for k,v in SHEET_COLUMN_MAP.items()}, inplace=True)
+        df.rename(columns={
+            "Lotesingresados": "Lotes_ingresados",
+            "⌚ Lotes_CamionA": "Lotes_CamionA",
+            "# Km_CamionA": "KmRecorridos_CamionA",
+            "# Km_CamionB": "KmRecorridos_CamionB"
+        }, inplace=True)
+        
+
+        # Verificación clave: Si el DataFrame está vacío o no contiene las columnas necesarias después de renombrar
+        required_cols = ["Fecha", "Lotes_ingresados", "Lotes_CamionA"]
+        if not all(col in df.columns for col in required_cols):
+             st.warning("⚠️ Error en Historial: Los encabezados de Google Sheets no coinciden con los nombres esperados. Se necesita: 'Lotesingresados', '⌚ Lotes_CamionA', '# Km_CamionA', etc.")
+             return pd.DataFrame(columns=COLUMNS)
 
         # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
-        if df.empty or len(df.columns) < len(COLUMNS):
+        if df.empty:
             return pd.DataFrame(columns=COLUMNS)
         return df
 
@@ -136,7 +167,9 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
 
         # gspread necesita una lista de valores en el orden de las COLUMNS
-        # El orden es crucial: [Fecha, Hora, Lotes_ingresados, ...]
+        # OJO: Aquí se espera que la columna Lotes_ingresados tenga una I mayúscula si es así en la hoja.
+        # Por ahora, usamos COLUMNS limpio y asumimos que la hoja acepta esto, si no,
+        # necesitarías renombrar la columna en Google Sheets a Lotes_ingresados (con underscore).
         values_to_save = [new_route_data[col] for col in COLUMNS]
 
         # Añade la fila al final de la hoja
@@ -153,12 +186,26 @@ def save_new_route_to_sheet(new_route_data):
 
 def calculate_statistics(df):
     """Calcula estadísticas diarias y mensuales a partir del historial."""
+    # Renombrar para usar los nombres limpios esperados por las funciones
+    df.rename(columns={
+        "Lotesingresados": "Lotes_ingresados",
+        "⌚ Lotes_CamionA": "Lotes_CamionA",
+        "# Km_CamionA": "KmRecorridos_CamionA",
+        "# Km_CamionB": "KmRecorridos_CamionB"
+    }, inplace=True)
+    
     if df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
     # 1. Preparación de datos
-    df['Fecha'] = pd.to_datetime(df['Fecha'])
-    df['Mes'] = df['Fecha'].dt.to_period('M')
+    # La columna 'Fecha' debería ser accesible ahora si la hoja tiene el encabezado 'Fecha'
+    if 'Fecha' in df.columns:
+        df['Fecha'] = pd.to_datetime(df['Fecha'])
+        df['Mes'] = df['Fecha'].dt.to_period('M')
+    else:
+        # Fallback si 'Fecha' no existe (aunque la imagen la muestra)
+        return pd.DataFrame(), pd.DataFrame()
+    
 
     # Función para contar lotes totales (Lotes_ingresados es un string "A05, B10, C95...")
     def count_total_lotes_input(lotes_str):
@@ -179,7 +226,6 @@ def calculate_statistics(df):
             return 0 # En caso de error de formato
 
     # Aplicamos las funciones para obtener los conteos
-    # st.cache_data.clear() # **Se eliminó para evitar conflictos de caché**
     df['Total_Lotes_Ingresados'] = df['Lotes_ingresados'].apply(count_total_lotes_input)
     df['Lotes_CamionA_Count'] = df['Lotes_CamionA'].apply(count_assigned_lotes)
     df['Lotes_CamionB_Count'] = df['Lotes_CamionB'].apply(count_assigned_lotes)
@@ -557,3 +603,4 @@ elif page == "Estadísticas":
         
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
