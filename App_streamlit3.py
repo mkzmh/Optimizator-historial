@@ -24,6 +24,16 @@ st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Estilo para el título grande y destacado */
+    .big-title {
+        font-size: 3.5em; /* Tamaño grande, equivalente a h1 o superior */
+        font-weight: 800; /* Negrita extra */
+        color: #0044FF; /* Color de acento para destacar */
+        text-align: center; /* Asegura que el título también esté centrado */
+        margin-top: 0.5em;
+        margin-bottom: 0.2em;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -250,18 +260,18 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 
 if page == "Calcular Nueva Ruta":
     
-    # --- [MODIFICACIÓN: LOGO CENTRADO AJUSTADO] ---
+    # --- [MODIFICACIÓN: LOGO CENTRADO Y AJUSTE DE TÍTULO] ---
     # Centrado Universal Corregido: Usamos [3, 4, 2] para compensar el margen izquierdo.
-    # Ahora usamos [4, 4, 2] para un empuje extra a la derecha.
-    col_left, col_logo, col_right = st.columns([4, 4, 2]) 
+    col_left, col_logo, col_right = st.columns([3, 4, 2]) 
     
     with col_logo:
-        # 1. Logo con ancho fijo (350px) para darle un estilo "más angosto"
+        # 1. Logo con ancho fijo (450px) - AUMENTADO
         st.image("https://raw.githubusercontent.com/mkzmh/Optimizator-historial/main/LOGO%20CN%20GRUPO%20COLOR%20(1).png", 
-                 width=350) # ANCHO FIJO DE 350px
+                 width=450) # ANCHO AUMENTADO a 450px
     
     # 2. Títulos debajo del logo (en el ancho completo de la columna principal)
-    st.title("🚚 Optimizator📍")
+    # TÍTULO PRINCIPAL: Usamos HTML/CSS para hacerlo más grande y destacable
+    st.markdown('<p class="big-title">🚚 Optimizator📍</p>', unsafe_allow_html=True)
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
 
     st.markdown("---") # Separador visual
@@ -547,9 +557,15 @@ elif page == "Estadísticas":
                     'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
             )
+
+            # Gráfico de Lotes Mensuales
+            st.markdown("##### Distribución de Lotes Asignados por Mes")
+            st.bar_chart(
+                monthly_stats,
+                x='Mes_str',
+                y=['Lotes_CamionA_Count', 'Lotes_CamionB_Count'], # Usamos el conteo por camión
+                color=['#0044FF', '#FF4B4B']
+            )
         
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
-
-
