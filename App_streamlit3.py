@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import pytz
+from datetime import datetime # Importación actualizada para usar la hora
+import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
 import os
 import time
 import json
-import gspread
+import gspread # Necesario para la conexión a Google Sheets
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
@@ -24,12 +24,22 @@ st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Estilo para el título grande y destacado */
+    .big-title {
+        font-size: 4em; /* Tamaño grande ajustado a 4em */
+        font-weight: 800; /* Negrita extra */
+        color: #0044FF; /* Color de acento para destacar */
+        text-align: left; /* Alineación a la izquierda */
+        margin-top: 0.5em;
+        margin-bottom: 0.2em;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 # Encabezados en el orden de Google Sheets
-# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
-COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
+# **DEBEN COINCIDIR EXACTAMENTE CON LA PRIMERA FILA DE TU HOJA DE CÁLCULO**
+COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
 
 
 # --- Funciones Auxiliares para Navegación ---
@@ -62,8 +72,6 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
-
-# La función generate_waze_link ha sido eliminada.
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -111,6 +119,13 @@ def get_history_data():
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
 
+        # Validación estricta de las columnas requeridas (ahora usando los nombres exactos de la hoja)
+        required_cols = ["Fecha", "LotesIngresados", "Lotes_CamionA", "Km_CamionA"]
+        if not all(col in df.columns for col in required_cols):
+             missing_cols = [col for col in required_cols if col not in df.columns]
+             st.warning(f"⚠️ Error en Historial: Faltan las columnas necesarias en Google Sheets para las estadísticas. Faltan: {', '.join(missing_cols)}. Verifique la primera fila.")
+             return pd.DataFrame(columns=COLUMNS)
+        
         # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
         if df.empty or len(df.columns) < len(COLUMNS):
             return pd.DataFrame(columns=COLUMNS)
@@ -133,7 +148,7 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
 
         # gspread necesita una lista de valores en el orden de las COLUMNS
-        # El orden es crucial: [Fecha, Hora, Lotes_ingresados, ...]
+        # El orden es crucial: [Fecha, Hora, LotesIngresados, ...]
         values_to_save = [new_route_data[col] for col in COLUMNS]
 
         # Añade la fila al final de la hoja
@@ -146,12 +161,79 @@ def save_new_route_to_sheet(new_route_data):
         st.error(f"❌ Error al guardar datos en Google Sheets. Verifique que la Fila 1 tenga 7 columnas: {e}")
 
 
+# --- Funciones de Estadística ---
+
+def calculate_statistics(df):
+    """Calcula estadísticas diarias y mensuales a partir del historial."""
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # 1. Preparación de datos
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df['Mes'] = df['Fecha'].dt.to_period('M')
+
+    # Función para contar lotes totales (LotesIngresados es un string "A05, B10, C95...")
+    def count_total_lotes_input(lotes_str):
+        if not lotes_str or pd.isna(lotes_str):
+            return 0
+        # Contar lotes separados por coma (y espacio opcional)
+        return len([l.strip() for l in lotes_str.split(',') if l.strip()])
+
+    # La columna Lotes_CamionA/B está como string (ej: "['A05', 'A10']")
+    def count_assigned_lotes(lotes_str):
+        if not lotes_str or pd.isna(lotes_str) or lotes_str.strip() == '[]':
+            return 0
+        try:
+            # Quitamos corchetes, comillas y espacios. Contamos elementos.
+            lotes_list = [l.strip() for l in lotes_str.strip('[]').replace("'", "").replace('"', '').replace(" ", "").split(',') if l.strip()]
+            return len(lotes_list)
+        except:
+            return 0 # En caso de error de formato
+
+    # Aplicamos las funciones para obtener los conteos
+    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_total_lotes_input)
+    df['Lotes_CamionA_Count'] = df['Lotes_CamionA'].apply(count_assigned_lotes)
+    df['Lotes_CamionB_Count'] = df['Lotes_CamionB'].apply(count_assigned_lotes)
+    df['Total_Lotes_Asignados'] = df['Lotes_CamionA_Count'] + df['Lotes_CamionB_Count']
+    df['Km_Total'] = df['Km_CamionA'] + df['Km_CamionB'] # Suma usando los nombres de la hoja
+
+
+    # 2. Agregación Diaria
+    daily_stats = df.groupby('Fecha').agg(
+        Rutas_Total=('Fecha', 'count'),
+        Lotes_Ingresados_Total=('Total_Lotes_Ingresados', 'sum'),
+        Lotes_Asignados_Total=('Total_Lotes_Asignados', 'sum'),
+        Km_CamionA_Total=('Km_CamionA', 'sum'), # Usando nombre de hoja
+        Km_CamionB_Total=('Km_CamionB', 'sum'), # Usando nombre de hoja
+        Km_Total=('Km_Total', 'sum'),
+    ).reset_index()
+    daily_stats['Fecha_str'] = daily_stats['Fecha'].dt.strftime('%Y-%m-%d')
+    daily_stats['Km_Promedio_Ruta'] = daily_stats['Km_Total'] / daily_stats['Rutas_Total']
+    
+    # 3. Agregación Mensual
+    monthly_stats = df.groupby('Mes').agg(
+        Rutas_Total=('Fecha', 'count'),
+        Lotes_Ingresados_Total=('Total_Lotes_Ingresados', 'sum'),
+        Lotes_Asignados_Total=('Total_Lotes_Asignados', 'sum'),
+        Km_CamionA_Total=('Km_CamionA', 'sum'), # Usando nombre de hoja
+        Km_CamionB_Total=('Km_CamionB', 'sum'), # Usando nombre de hoja
+        Km_Total=('Km_Total', 'sum'),
+    ).reset_index()
+    monthly_stats['Mes_str'] = monthly_stats['Mes'].astype(str) # Convertir Period de vuelta a string
+    monthly_stats['Km_Promedio_Ruta'] = monthly_stats['Km_Total'] / monthly_stats['Rutas_Total']
+
+    return daily_stats, monthly_stats
+
+
 # -------------------------------------------------------------------------
 # INICIALIZACIÓN DE LA SESIÓN
 # -------------------------------------------------------------------------
 
 # Inicializar el estado de la sesión para guardar el historial PERMANENTE
 if 'historial_cargado' not in st.session_state:
+    # --- LIMPIEZA DE CACHÉ DE DATOS AL INICIO (para evitar el KeyError) ---
+    st.cache_data.clear() 
+    # ----------------------------------------------------------------------
     df_history = get_history_data() # Ahora carga de Google Sheets
     # Convertimos el DataFrame a lista de diccionarios para la sesión
     st.session_state.historial_rutas = df_history.to_dict('records')
@@ -167,7 +249,7 @@ if 'results' not in st.session_state:
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial"]
+    ["Calcular Nueva Ruta", "Historial", "Estadísticas"] # ¡NUEVA PÁGINA!
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -178,17 +260,17 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 
 if page == "Calcular Nueva Ruta":
     
-    # --- [MODIFICACIÓN: LOGO CENTRADO AJUSTADO] ---
-    # AJUSTE: Cambiamos la proporción a [4, 4, 1] para mover el logo más a la derecha y centrarlo visualmente.
-    col_left, col_logo, col_right = st.columns([4, 4, 1])
+    # --- [MODIFICACIÓN: LOGO CENTRADO Y AJUSTES] ---
+    # Centrado: Usamos [4, 4, 2] para que los espaciadores compensen el margen de Streamlit.
+    col_left, col_logo, col_right = st.columns([4, 4, 2]) 
     
     with col_logo:
-        # 1. Logo con ancho fijo (350px) para darle un estilo "más angosto"
-        st.image("https://github.com/mkzmh/Optimizator-historial/blob/main/LOGO%20CN%20GRUPO%20COLOR%20(1).png", 
-                 width=350) # ANCHO FIJO DE 350px
+        # 1. Logo con ancho fijo (450px)
+        st.image("https://raw.githubusercontent.com/mkzmh/Optimizator-historial/main/LOGO%20CN%20GRUPO%20COLOR%20(1).png", 
+                 width=450) # ANCHO AUMENTADO a 450px
     
-    # 2. Títulos debajo del logo (en el ancho completo de la columna principal)
-    st.title("🚚 Optimizator📍")
+    # 2. Títulos debajo del logo
+    st.markdown('<p class="big-title">🚚 OPTIMIZATOR📍</p>', unsafe_allow_html=True)
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
 
     st.markdown("---") # Separador visual
@@ -265,51 +347,23 @@ if page == "Calcular Nueva Ruta":
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
+                    # Ruta A
+                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    results['ruta_a']['geojson_link'] = '#' # Placeholder (No se usa, pero se mantiene para estructura)
                     
-                    # Generamos los enlaces para todas las 5 opciones: GMaps, Mapy.cz, Waze, Bing
-                    if results['ruta_a'].get('orden_optimo'):
-                        results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                        
-                        # --- MODIFICACIÓN CLAVE: ELIMINAMOS EL PLACEHOLDER DE GEOJSON ---
-                        # Dejamos que el valor de 'geojson_link' que retorna solve_route_optimization sea el usado.
-                        
-                    else:
-                        st.warning("Advertencia: No se pudo optimizar la Ruta A. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
-                        results['ruta_a']['gmaps_link'] = '#'
-                        # Asegurar que el GeoJSON Link esté definido si falla la ruta
-                        if 'geojson_link' not in results['ruta_a']: results['ruta_a']['geojson_link'] = '#'
-
-                    if results['ruta_b'].get('orden_optimo'):
-                        results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                        
-                        # --- MODIFICACIÓN CLAVE: ELIMINAMOS EL PLACEHOLDER DE GEOJSON ---
-                        # Dejamos que el valor de 'geojson_link' que retorna solve_route_optimization sea el usado.
-                        
-                    else:
-                        st.warning("Advertencia: No se pudo optimizar la Ruta B. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
-                        results['ruta_b']['gmaps_link'] = '#'
-                        # Asegurar que el GeoJSON Link esté definido si falla la ruta
-                        if 'geojson_link' not in results['ruta_b']: results['ruta_b']['geojson_link'] = '#'
-
-                    # Generar los demás enlaces, asumiendo que el orden óptimo se generó correctamente
-                    if results['ruta_a'].get('orden_optimo'):
-                        results['ruta_a']['mapycz_link'] = generate_mapycz_link(results['ruta_a']['orden_optimo']) 
-                        results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo']) 
-                        results['ruta_a']['bing_link'] = generate_bing_link(results['ruta_a']['orden_optimo']) 
-                    if results['ruta_b'].get('orden_optimo'):
-                        results['ruta_b']['mapycz_link'] = generate_mapycz_link(results['ruta_b']['orden_optimo'])
-                        results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo']) 
-                        results['ruta_b']['bing_link'] = generate_bing_link(results['ruta_b']['orden_optimo']) 
+                    # Ruta B
+                    results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['geojson_link'] = '#' # Placeholder (No se usa, pero se mantiene para estructura)
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
                         "Hora": current_time.strftime("%H:%M:%S"), # << Usa la hora ya en la zona horaria correcta
-                        "Lotes_ingresados": ", ".join(all_stops_to_visit),
-                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
-                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
-                        "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
-                        "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
+                        "LotesIngresados": ", ".join(all_stops_to_visit), # USANDO NOMBRE LIMPIO DE LA HOJA
+                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string de lista
+                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string de lista
+                        "Km_CamionA": results['ruta_a']['distancia_km'], # USANDO NOMBRE LIMPIO DE LA HOJA
+                        "Km_CamionB": results['ruta_b']['distancia_km'], # USANDO NOMBRE LIMPIO DE LA HOJA
                     }
 
                     # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
@@ -322,31 +376,22 @@ if page == "Calcular Nueva Ruta":
 
             except Exception as e:
                 st.session_state.results = None
-                # st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}") # Descomentar para debugging
-                st.error("❌ Ocurrió un error inesperado durante el ruteo. Verifique la entrada de lotes y el módulo de lógica de ruteo.")
-
+                st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}")
 
     # -------------------------------------------------------------------------
     # 2. REPORTE DE RESULTADOS UNIFICADO
     # -------------------------------------------------------------------------
 
-    # ESTA CONDICIÓN ES CLAVE: SOLO SE MUESTRA SI HAY RESULTADOS
     if st.session_state.results:
         results = st.session_state.results
 
-        # Definimos res_a y res_b aquí por si la estructura de results es parcial
-        res_a = results.get('ruta_a', {})
-        res_b = results.get('ruta_b', {})
-        
-        # GUARDIA ADICIONAL: Solo intentamos renderizar si tenemos rutas completas
-        if not (res_a and res_b):
-             st.error("Error: La estructura de resultados está incompleta.")
-             st.stop() # <-- Uso correcto de st.stop()
-        
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
         st.divider()
+
+        res_a = results.get('ruta_a', {})
+        res_b = results.get('ruta_b', {})
 
         col_a, col_b = st.columns(2)
 
@@ -358,29 +403,17 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-            # 👇 ENLACES DE NAVEGACIÓN 
-            st.markdown("---")
-            
-            # Fila para los botones de navegación (5 columnas: 4 navegadores + 1 GeoJSON)
-            col_btn_a_1, col_btn_a_2, col_btn_a_3, col_btn_a_4, col_btn_a_5 = st.columns(5)
-
-            with col_btn_a_1:
-                st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a")
-            
-            with col_btn_a_2:
-                st.link_button("🌲 Mapy.cz", res_a.get('mapycz_link', '#'), key="mapycz_a") 
-            
-            with col_btn_a_3:
-                st.link_button("🚗 Waze", res_a.get('waze_link', '#'), key="waze_a")
-            
-            with col_btn_a_4:
-                st.link_button("📍 Bing Maps", res_a.get('bing_link', '#'), key="bing_a")
-            
-            with col_btn_a_5:
-                # El link de GeoJSON ahora usa el valor retornado por la lógica de ruteo
-                st.link_button("🌐 GeoJSON (Track)", res_a.get('geojson_link', '#'), key="geojson_a")
-
-
+                # Botón principal INICIAR RUTA
+                st.markdown("---")
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN A", 
+                    res_a.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace (reinsertado)
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
@@ -389,27 +422,16 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-            # 👇 ENLACES DE NAVEGACIÓN 
-            st.markdown("---")
-            
-            # Fila para los botones de navegación (5 columnas: 4 navegadores + 1 GeoJSON)
-            col_btn_b_1, col_btn_b_2, col_btn_b_3, col_btn_b_4, col_btn_b_5 = st.columns(5)
-            
-            with col_btn_b_1:
-                st.link_button("🗺️ Google Maps", res_b.get('gmaps_link', '#'), key="gmaps_b")
-
-            with col_btn_b_2:
-                st.link_button("🌲 Mapy.cz", res_b.get('mapycz_link', '#'), key="mapycz_b")
-            
-            with col_btn_b_3:
-                st.link_button("🚗 Waze", res_b.get('waze_link', '#'), key="waze_b")
-            
-            with col_btn_b_4:
-                st.link_button("📍 Bing Maps", res_b.get('bing_link', '#'), key="bing_b")
-            
-            with col_btn_b_5:
-                # El link de GeoJSON ahora usa el valor retornado por la lógica de ruteo
-                st.link_button("🌐 GeoJSON (Track)", res_b.get('geojson_link', '#'), key="geojson_b")
+                # Botón principal INICIAR RUTA
+                st.markdown("---")
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN B", 
+                    res_b.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace (reinsertado)
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -431,17 +453,117 @@ elif page == "Historial":
 
         # Muestra el DF, usando los nombres amigables
         st.dataframe(df_historial,
-                     use_container_width=True,
-                     column_config={
-                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "Lotes_CamionA": "Lotes Camión A",
-                         "Lotes_CamionB": "Lotes Camión B",
-                         "Fecha": "Fecha",
-                         "Hora": "Hora de Carga", # Nombre visible en Streamlit
-                         "Lotes_ingresados": "Lotes Ingresados"
+                      use_container_width=True,
+                      column_config={
+                          "Km_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                          "Km_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                          "Lotes_CamionA": "Lotes Camión A",
+                          "Lotes_CamionB": "Lotes Camión B",
+                          "Fecha": "Fecha",
+                          "Hora": "Hora de Carga", # Nombre visible en Streamlit
+                          "LotesIngresados": "Lotes Ingresados"
                       })
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+        
+# =============================================================================
+# 4. PÁGINA: ESTADÍSTICAS
+# =============================================================================
 
+elif page == "Estadísticas":
+    
+    # --- Limpieza de caché para el análisis ---
+    st.cache_data.clear()
+    # ----------------------------------------
+    
+    st.header("📊 Estadísticas de Ruteo")
+    st.caption("Análisis diario y mensual de la actividad de optimización.")
+
+    # Recarga el historial de Google Sheets para garantizar que está actualizado
+    # La limpieza de caché garantiza que se obtengan los encabezados correctos.
+    df_historial = get_history_data()
+
+    if df_historial.empty:
+        st.info("No hay datos en el historial para generar estadísticas.")
+    else:
+        daily_stats, monthly_stats = calculate_statistics(df_historial)
+
+        # -----------------------------------------------------
+        # Estadísticas Diarias
+        # -----------------------------------------------------
+        st.subheader("Resumen Diario")
+        if not daily_stats.empty:
+            
+            # Columnas a mostrar y sus nombres en la tabla
+            columns_to_show = {
+                'Fecha_str': 'Fecha',
+                'Rutas_Total': 'Rutas Calculadas',
+                'Lotes_Asignados_Total': 'Lotes Asignados',
+                'Km_CamionA_Total': 'KM Camión A',
+                'Km_CamionB_Total': 'KM Camión B',
+                'Km_Total': 'KM Totales',
+                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            }
+
+            st.dataframe(
+                daily_stats[list(columns_to_show.keys())].rename(columns=columns_to_show),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
+                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
+                }
+            )
+            
+            # Gráfico de KM Totales Diarios
+            st.markdown("##### Kilómetros Totales Recorridos por Día")
+            st.bar_chart(
+                daily_stats,
+                x='Fecha_str',
+                y=['Km_CamionA_Total', 'Km_CamionB_Total'],
+                color=['#0044FF', '#FF4B4B'] # Colores distintivos: Azul y Rojo
+            )
+
+        # -----------------------------------------------------
+        # Estadísticas Mensuales
+        # -----------------------------------------------------
+        st.subheader("Resumen Mensual")
+        if not monthly_stats.empty:
+            
+            # Columnas a mostrar y sus nombres en la tabla
+            columns_to_show = {
+                'Mes_str': 'Mes',
+                'Rutas_Total': 'Rutas Calculadas',
+                'Lotes_Asignados_Total': 'Lotes Asignados',
+                'Km_CamionA_Total': 'KM Camión A',
+                'Km_CamionB_Total': 'KM Camión B',
+                'Km_Total': 'KM Totales',
+                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            }
+
+            st.dataframe(
+                monthly_stats[list(columns_to_show.keys())].rename(columns=columns_to_show),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
+                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
+                }
+            )
+
+            # Gráfico de Lotes Mensuales
+            st.markdown("##### Distribución de Lotes Asignados por Mes")
+            st.bar_chart(
+                monthly_stats,
+                x='Mes_str',
+                y=['Lotes_CamionA_Count', 'Lotes_CamionB_Count'], # Usamos el conteo por camión
+                color=['#0044FF', '#FF4B4B']
+            )
+        
+        st.divider()
+        st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
