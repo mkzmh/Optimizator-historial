@@ -28,8 +28,8 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # Encabezados en el orden de Google Sheets
-# ¡ATENCIÓN! Se agregó "Hora" después de "Fecha"
-COLUMNS = ["Fecha", "Hora", "Lotes_ingresados", "Lotes_CamionA", "Lotes_CamionB", "KmRecorridos_CamionA", "KmRecorridos_CamionB"]
+# **DEBEN COINCIDIR EXACTAMENTE CON LA PRIMERA FILA DE TU HOJA DE CÁLCULO**
+COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
 
 
 # --- Funciones Auxiliares para Navegación ---
@@ -62,8 +62,6 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
-
-# La función generate_waze_link ha sido eliminada.
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -111,6 +109,13 @@ def get_history_data():
         data = worksheet.get_all_records()
         df = pd.DataFrame(data)
 
+        # Validación estricta de las columnas requeridas (ahora usando los nombres exactos de la hoja)
+        required_cols = ["Fecha", "LotesIngresados", "Lotes_CamionA", "Km_CamionA"]
+        if not all(col in df.columns for col in required_cols):
+             missing_cols = [col for col in required_cols if col not in df.columns]
+             st.warning(f"⚠️ Error en Historial: Faltan las columnas necesarias en Google Sheets para las estadísticas. Faltan: {', '.join(missing_cols)}. Verifique la primera fila.")
+             return pd.DataFrame(columns=COLUMNS)
+        
         # Validación: si el DF está vacío o las columnas no coinciden con las 7 esperadas, se usa el DF vacío.
         if df.empty or len(df.columns) < len(COLUMNS):
             return pd.DataFrame(columns=COLUMNS)
@@ -133,7 +138,7 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
 
         # gspread necesita una lista de valores en el orden de las COLUMNS
-        # El orden es crucial: [Fecha, Hora, Lotes_ingresados, ...]
+        # El orden es crucial: [Fecha, Hora, LotesIngresados, ...]
         values_to_save = [new_route_data[col] for col in COLUMNS]
 
         # Añade la fila al final de la hoja
@@ -146,12 +151,79 @@ def save_new_route_to_sheet(new_route_data):
         st.error(f"❌ Error al guardar datos en Google Sheets. Verifique que la Fila 1 tenga 7 columnas: {e}")
 
 
+# --- Funciones de Estadística ---
+
+def calculate_statistics(df):
+    """Calcula estadísticas diarias y mensuales a partir del historial."""
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # 1. Preparación de datos
+    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df['Mes'] = df['Fecha'].dt.to_period('M')
+
+    # Función para contar lotes totales (LotesIngresados es un string "A05, B10, C95...")
+    def count_total_lotes_input(lotes_str):
+        if not lotes_str or pd.isna(lotes_str):
+            return 0
+        # Contar lotes separados por coma (y espacio opcional)
+        return len([l.strip() for l in lotes_str.split(',') if l.strip()])
+
+    # La columna Lotes_CamionA/B está como string (ej: "['A05', 'A10']")
+    def count_assigned_lotes(lotes_str):
+        if not lotes_str or pd.isna(lotes_str) or lotes_str.strip() == '[]':
+            return 0
+        try:
+            # Quitamos corchetes, comillas y espacios. Contamos elementos.
+            lotes_list = [l.strip() for l in lotes_str.strip('[]').replace("'", "").replace('"', '').replace(" ", "").split(',') if l.strip()]
+            return len(lotes_list)
+        except:
+            return 0 # En caso de error de formato
+
+    # Aplicamos las funciones para obtener los conteos
+    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_total_lotes_input)
+    df['Lotes_CamionA_Count'] = df['Lotes_CamionA'].apply(count_assigned_lotes)
+    df['Lotes_CamionB_Count'] = df['Lotes_CamionB'].apply(count_assigned_lotes)
+    df['Total_Lotes_Asignados'] = df['Lotes_CamionA_Count'] + df['Lotes_CamionB_Count']
+    df['Km_Total'] = df['Km_CamionA'] + df['Km_CamionB'] # Suma usando los nombres de la hoja
+
+
+    # 2. Agregación Diaria
+    daily_stats = df.groupby('Fecha').agg(
+        Rutas_Total=('Fecha', 'count'),
+        Lotes_Ingresados_Total=('Total_Lotes_Ingresados', 'sum'),
+        Lotes_Asignados_Total=('Total_Lotes_Asignados', 'sum'),
+        Km_CamionA_Total=('Km_CamionA', 'sum'), # Usando nombre de hoja
+        Km_CamionB_Total=('Km_CamionB', 'sum'), # Usando nombre de hoja
+        Km_Total=('Km_Total', 'sum'),
+    ).reset_index()
+    daily_stats['Fecha_str'] = daily_stats['Fecha'].dt.strftime('%Y-%m-%d')
+    daily_stats['Km_Promedio_Ruta'] = daily_stats['Km_Total'] / daily_stats['Rutas_Total']
+    
+    # 3. Agregación Mensual
+    monthly_stats = df.groupby('Mes').agg(
+        Rutas_Total=('Fecha', 'count'),
+        Lotes_Ingresados_Total=('Total_Lotes_Ingresados', 'sum'),
+        Lotes_Asignados_Total=('Total_Lotes_Asignados', 'sum'),
+        Km_CamionA_Total=('Km_CamionA', 'sum'), # Usando nombre de hoja
+        Km_CamionB_Total=('Km_CamionB', 'sum'), # Usando nombre de hoja
+        Km_Total=('Km_Total', 'sum'),
+    ).reset_index()
+    monthly_stats['Mes_str'] = monthly_stats['Mes'].astype(str) # Convertir Period de vuelta a string
+    monthly_stats['Km_Promedio_Ruta'] = monthly_stats['Km_Total'] / monthly_stats['Rutas_Total']
+
+    return daily_stats, monthly_stats
+
+
 # -------------------------------------------------------------------------
 # INICIALIZACIÓN DE LA SESIÓN
 # -------------------------------------------------------------------------
 
 # Inicializar el estado de la sesión para guardar el historial PERMANENTE
 if 'historial_cargado' not in st.session_state:
+    # --- LIMPIEZA DE CACHÉ DE DATOS AL INICIO (para evitar el KeyError) ---
+    st.cache_data.clear() 
+    # ----------------------------------------------------------------------
     df_history = get_history_data() # Ahora carga de Google Sheets
     # Convertimos el DataFrame a lista de diccionarios para la sesión
     st.session_state.historial_rutas = df_history.to_dict('records')
@@ -167,7 +239,7 @@ if 'results' not in st.session_state:
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial"]
+    ["Calcular Nueva Ruta", "Historial", "Estadísticas"] # ¡NUEVA PÁGINA!
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -179,8 +251,8 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 if page == "Calcular Nueva Ruta":
     
     # --- [MODIFICACIÓN: LOGO CENTRADO AJUSTADO] ---
-    # Ajustamos las columnas a [3, 4, 2] para que el espaciador izquierdo sea mayor y lo centre mejor.
-    col_left, col_logo, col_right = st.columns([3, 4, 2]) 
+    # Ajustamos las columnas a [2, 4, 2] para centrar el logo.
+    col_left, col_logo, col_right = st.columns([2, 4, 2]) 
     
     with col_logo:
         # 1. Logo con ancho fijo (350px) para darle un estilo "más angosto"
@@ -278,11 +350,11 @@ if page == "Calcular Nueva Ruta":
                     new_route = {
                         "Fecha": current_time.strftime("%Y-%m-%d"),
                         "Hora": current_time.strftime("%H:%M:%S"), # << Usa la hora ya en la zona horaria correcta
-                        "Lotes_ingresados": ", ".join(all_stops_to_visit),
-                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string
-                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string
-                        "KmRecorridos_CamionA": results['ruta_a']['distancia_km'],
-                        "KmRecorridos_CamionB": results['ruta_b']['distancia_km'],
+                        "LotesIngresados": ", ".join(all_stops_to_visit), # USANDO NOMBRE LIMPIO DE LA HOJA
+                        "Lotes_CamionA": str(results['ruta_a']['lotes_asignados']), # Guardar como string de lista
+                        "Lotes_CamionB": str(results['ruta_b']['lotes_asignados']), # Guardar como string de lista
+                        "Km_CamionA": results['ruta_a']['distancia_km'], # USANDO NOMBRE LIMPIO DE LA HOJA
+                        "Km_CamionB": results['ruta_b']['distancia_km'], # USANDO NOMBRE LIMPIO DE LA HOJA
                     }
 
                     # 🚀 GUARDA PERMANENTEMENTE EN GOOGLE SHEETS
@@ -374,14 +446,115 @@ elif page == "Historial":
         st.dataframe(df_historial,
                       use_container_width=True,
                       column_config={
-                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                          "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                          "Km_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                          "Km_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
                           "Lotes_CamionA": "Lotes Camión A",
                           "Lotes_CamionB": "Lotes Camión B",
                           "Fecha": "Fecha",
                           "Hora": "Hora de Carga", # Nombre visible en Streamlit
-                          "Lotes_ingresados": "Lotes Ingresados"
+                          "LotesIngresados": "Lotes Ingresados"
                       })
 
     else:
         st.info("No hay rutas guardadas. Realice un cálculo en la página principal.")
+        
+# =============================================================================
+# 4. PÁGINA: ESTADÍSTICAS
+# =============================================================================
+
+elif page == "Estadísticas":
+    
+    # --- Limpieza de caché para el análisis ---
+    st.cache_data.clear()
+    # ----------------------------------------
+    
+    st.header("📊 Estadísticas de Ruteo")
+    st.caption("Análisis diario y mensual de la actividad de optimización.")
+
+    # Recarga el historial de Google Sheets para garantizar que está actualizado
+    # La limpieza de caché garantiza que se obtengan los encabezados correctos.
+    df_historial = get_history_data()
+
+    if df_historial.empty:
+        st.info("No hay datos en el historial para generar estadísticas.")
+    else:
+        daily_stats, monthly_stats = calculate_statistics(df_historial)
+
+        # -----------------------------------------------------
+        # Estadísticas Diarias
+        # -----------------------------------------------------
+        st.subheader("Resumen Diario")
+        if not daily_stats.empty:
+            
+            # Columnas a mostrar y sus nombres en la tabla
+            columns_to_show = {
+                'Fecha_str': 'Fecha',
+                'Rutas_Total': 'Rutas Calculadas',
+                'Lotes_Asignados_Total': 'Lotes Asignados',
+                'Km_CamionA_Total': 'KM Camión A',
+                'Km_CamionB_Total': 'KM Camión B',
+                'Km_Total': 'KM Totales',
+                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            }
+
+            st.dataframe(
+                daily_stats[list(columns_to_show.keys())].rename(columns=columns_to_show),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
+                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
+                }
+            )
+            
+            # Gráfico de KM Totales Diarios
+            st.markdown("##### Kilómetros Totales Recorridos por Día")
+            st.bar_chart(
+                daily_stats,
+                x='Fecha_str',
+                y=['Km_CamionA_Total', 'Km_CamionB_Total'],
+                color=['#0044FF', '#FF4B4B'] # Colores distintivos: Azul y Rojo
+            )
+
+        # -----------------------------------------------------
+        # Estadísticas Mensuales
+        # -----------------------------------------------------
+        st.subheader("Resumen Mensual")
+        if not monthly_stats.empty:
+            
+            # Columnas a mostrar y sus nombres en la tabla
+            columns_to_show = {
+                'Mes_str': 'Mes',
+                'Rutas_Total': 'Rutas Calculadas',
+                'Lotes_Asignados_Total': 'Lotes Asignados',
+                'Km_CamionA_Total': 'KM Camión A',
+                'Km_CamionB_Total': 'KM Camión B',
+                'Km_Total': 'KM Totales',
+                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            }
+
+            st.dataframe(
+                monthly_stats[list(columns_to_show.keys())].rename(columns=columns_to_show),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
+                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
+                }
+            )
+
+            # Gráfico de Lotes Mensuales
+            st.markdown("##### Total de Lotes Asignados por Mes")
+            st.bar_chart(
+                monthly_stats,
+                x='Mes_str',
+                y='Lotes_Asignados_Total',
+                color='#00CC78' # Un solo color verde
+            )
+        
+        st.divider()
+        st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
