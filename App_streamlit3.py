@@ -261,7 +261,7 @@ if page == "Calcular Nueva Ruta":
                  width=350) # ANCHO FIJO DE 350px
     
     # 2. Títulos debajo del logo (en el ancho completo de la columna principal)
-    st.title("🚚 Optimizator📍")
+    st.title("🚚 OPTIMIZATOR📍")
     st.caption("Planificación y división óptima de lotes para vehículos de entrega.")
 
     st.markdown("---") # Separador visual
@@ -559,3 +559,4 @@ elif page == "Estadísticas":
         
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
