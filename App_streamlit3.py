@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import pytz
+from datetime import datetime # Importación actualizada para usar la hora
+import pytz # ¡NUEVO! Importamos pytz para manejo de zonas horarias
 import os
 import time
 import json
-import gspread
+import gspread # Necesario para la conexión a Google Sheets
 
 # Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
@@ -180,7 +180,7 @@ if page == "Calcular Nueva Ruta":
     
     # --- [MODIFICACIÓN: LOGO CENTRADO AJUSTADO] ---
     # Ajustamos las columnas a [3, 4, 2] para que el espaciador izquierdo sea mayor y lo centre mejor.
-    col_left, col_logo, col_right = st.columns([3, 4, 2])
+    col_left, col_logo, col_right = st.columns([3, 4, 2]) 
     
     with col_logo:
         # 1. Logo con ancho fijo (350px) para darle un estilo "más angosto"
@@ -265,41 +265,14 @@ if page == "Calcular Nueva Ruta":
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
+                    # Ruta A
+                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
+                    # Añadir un enlace GeoJSON de ejemplo (asumiendo que en una versión futura se genera GeoJSON)
+                    results['ruta_a']['geojson_link'] = '#' # Placeholder
                     
-                    # Generamos los enlaces para todas las 5 opciones: GMaps, Mapy.cz, Waze, Bing
-                    if results['ruta_a'].get('orden_optimo'):
-                        results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                        
-                        # --- MODIFICACIÓN CLAVE: ELIMINAMOS EL PLACEHOLDER DE GEOJSON ---
-                        # Dejamos que el valor de 'geojson_link' que retorna solve_route_optimization sea el usado.
-                        
-                    else:
-                        st.warning("Advertencia: No se pudo optimizar la Ruta A. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
-                        results['ruta_a']['gmaps_link'] = '#'
-                        # Asegurar que el GeoJSON Link esté definido si falla la ruta
-                        if 'geojson_link' not in results['ruta_a']: results['ruta_a']['geojson_link'] = '#'
-
-                    if results['ruta_b'].get('orden_optimo'):
-                        results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                        
-                        # --- MODIFICACIÓN CLAVE: ELIMINAMOS EL PLACEHOLDER DE GEOJSON ---
-                        # Dejamos que el valor de 'geojson_link' que retorna solve_route_optimization sea el usado.
-                        
-                    else:
-                        st.warning("Advertencia: No se pudo optimizar la Ruta B. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
-                        results['ruta_b']['gmaps_link'] = '#'
-                        # Asegurar que el GeoJSON Link esté definido si falla la ruta
-                        if 'geojson_link' not in results['ruta_b']: results['ruta_b']['geojson_link'] = '#'
-
-                    # Generar los demás enlaces, asumiendo que el orden óptimo se generó correctamente
-                    if results['ruta_a'].get('orden_optimo'):
-                        results['ruta_a']['mapycz_link'] = generate_mapycz_link(results['ruta_a']['orden_optimo']) 
-                        results['ruta_a']['waze_link'] = generate_waze_link(results['ruta_a']['orden_optimo']) 
-                        results['ruta_a']['bing_link'] = generate_bing_link(results['ruta_a']['orden_optimo']) 
-                    if results['ruta_b'].get('orden_optimo'):
-                        results['ruta_b']['mapycz_link'] = generate_mapycz_link(results['ruta_b']['orden_optimo'])
-                        results['ruta_b']['waze_link'] = generate_waze_link(results['ruta_b']['orden_optimo']) 
-                        results['ruta_b']['bing_link'] = generate_bing_link(results['ruta_b']['orden_optimo']) 
+                    # Ruta B
+                    results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    results['ruta_b']['geojson_link'] = '#' # Placeholder
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -322,31 +295,22 @@ if page == "Calcular Nueva Ruta":
 
             except Exception as e:
                 st.session_state.results = None
-                # st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}") # Descomentar para debugging
-                st.error("❌ Ocurrió un error inesperado durante el ruteo. Verifique la entrada de lotes y el módulo de lógica de ruteo.")
-
+                st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}")
 
     # -------------------------------------------------------------------------
     # 2. REPORTE DE RESULTADOS UNIFICADO
     # -------------------------------------------------------------------------
 
-    # ESTA CONDICIÓN ES CLAVE: SOLO SE MUESTRA SI HAY RESULTADOS
     if st.session_state.results:
         results = st.session_state.results
 
-        # Definimos res_a y res_b aquí por si la estructura de results es parcial
-        res_a = results.get('ruta_a', {})
-        res_b = results.get('ruta_b', {})
-        
-        # GUARDIA ADICIONAL: Solo intentamos renderizar si tenemos rutas completas
-        if not (res_a and res_b):
-             st.error("Error: La estructura de resultados está incompleta.")
-             st.stop() # <-- Uso correcto de st.stop()
-        
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']} km")
         st.divider()
+
+        res_a = results.get('ruta_a', {})
+        res_b = results.get('ruta_b', {})
 
         col_a, col_b = st.columns(2)
 
@@ -358,29 +322,17 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_a.get('orden_optimo', []))} → Ingenio")
                 
-            # 👇 ENLACES DE NAVEGACIÓN 
-            st.markdown("---")
-            
-            # Fila para los botones de navegación (5 columnas: 4 navegadores + 1 GeoJSON)
-            col_btn_a_1, col_btn_a_2, col_btn_a_3, col_btn_a_4, col_btn_a_5 = st.columns(5)
-
-            with col_btn_a_1:
-                st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a")
-            
-            with col_btn_a_2:
-                st.link_button("🌲 Mapy.cz", res_a.get('mapycz_link', '#'), key="mapycz_a") 
-            
-            with col_btn_a_3:
-                st.link_button("🚗 Waze", res_a.get('waze_link', '#'), key="waze_a")
-            
-            with col_btn_a_4:
-                st.link_button("📍 Bing Maps", res_a.get('bing_link', '#'), key="bing_a")
-            
-            with col_btn_a_5:
-                # El link de GeoJSON ahora usa el valor retornado por la lógica de ruteo
-                st.link_button("🌐 GeoJSON (Track)", res_a.get('geojson_link', '#'), key="geojson_a")
-
-
+                # Botón principal INICIAR RUTA
+                st.markdown("---")
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN A", 
+                    res_a.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'))
+                
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
@@ -389,27 +341,16 @@ if page == "Calcular Nueva Ruta":
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
-            # 👇 ENLACES DE NAVEGACIÓN 
-            st.markdown("---")
-            
-            # Fila para los botones de navegación (5 columnas: 4 navegadores + 1 GeoJSON)
-            col_btn_b_1, col_btn_b_2, col_btn_b_3, col_btn_b_4, col_btn_b_5 = st.columns(5)
-            
-            with col_btn_b_1:
-                st.link_button("🗺️ Google Maps", res_b.get('gmaps_link', '#'), key="gmaps_b")
-
-            with col_btn_b_2:
-                st.link_button("🌲 Mapy.cz", res_b.get('mapycz_link', '#'), key="mapycz_b")
-            
-            with col_btn_b_3:
-                st.link_button("🚗 Waze", res_b.get('waze_link', '#'), key="waze_b")
-            
-            with col_btn_b_4:
-                st.link_button("📍 Bing Maps", res_b.get('bing_link', '#'), key="bing_b")
-            
-            with col_btn_b_5:
-                # El link de GeoJSON ahora usa el valor retornado por la lógica de ruteo
-                st.link_button("🌐 GeoJSON (Track)", res_b.get('geojson_link', '#'), key="geojson_b")
+                # Botón principal INICIAR RUTA
+                st.markdown("---")
+                st.link_button(
+                    "🚀 INICIAR RUTA CAMIÓN B", 
+                    res_b.get('gmaps_link', '#'), # Usa el enlace de GMaps generado
+                    type="primary", 
+                    use_container_width=True
+                )
+                # Mostrar el GeoJSON como enlace
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'))
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -431,15 +372,15 @@ elif page == "Historial":
 
         # Muestra el DF, usando los nombres amigables
         st.dataframe(df_historial,
-                     use_container_width=True,
-                     column_config={
-                         "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                         "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                         "Lotes_CamionA": "Lotes Camión A",
-                         "Lotes_CamionB": "Lotes Camión B",
-                         "Fecha": "Fecha",
-                         "Hora": "Hora de Carga", # Nombre visible en Streamlit
-                         "Lotes_ingresados": "Lotes Ingresados"
+                      use_container_width=True,
+                      column_config={
+                          "KmRecorridos_CamionA": st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                          "KmRecorridos_CamionB": st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                          "Lotes_CamionA": "Lotes Camión A",
+                          "Lotes_CamionB": "Lotes Camión B",
+                          "Fecha": "Fecha",
+                          "Hora": "Hora de Carga", # Nombre visible en Streamlit
+                          "Lotes_ingresados": "Lotes Ingresados"
                       })
 
     else:
