@@ -63,6 +63,13 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
+def generate_geojson_link(stops_order):
+    """
+    Función placeholder para generar el enlace GeoJSON.
+    Retorna '#' porque el GeoJSON real se generaría con una API externa (ORS/Mapbox).
+    """
+    return '#'
+
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
 
@@ -251,7 +258,7 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 if page == "Calcular Nueva Ruta":
     
     # --- [MODIFICACIÓN: LOGO CENTRADO Y AJUSTES] ---
-    # Centrado: Usamos [4, 4, 2] para que los espaciadores compensen el margen de Streamlit.
+    # Centrado Universal Corregido: Usamos [4, 4, 2] para compensar el margen de Streamlit.
     col_left, col_logo, col_right = st.columns([4, 4, 2]) 
     
     with col_logo:
@@ -339,11 +346,11 @@ if page == "Calcular Nueva Ruta":
                     # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
                     # Ruta A
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                    results['ruta_a']['geojson_link'] = '#' # Placeholder (No se usa, pero se mantiene para estructura)
+                    results['ruta_a']['geojson_link'] = generate_geojson_link(results['ruta_a']['orden_optimo']) # Ahora llama a la función
                     
                     # Ruta B
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                    results['ruta_b']['geojson_link'] = '#' # Placeholder (No se usa, pero se mantiene para estructura)
+                    results['ruta_b']['geojson_link'] = generate_geojson_link(results['ruta_b']['orden_optimo']) # Ahora llama a la función
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -545,6 +552,15 @@ elif page == "Estadísticas":
                     'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
             )
+
+            # Gráfico de Lotes Mensuales
+            st.markdown("##### Distribución de Lotes Asignados por Mes")
+            st.bar_chart(
+                monthly_stats,
+                x='Mes_str',
+                y=['Lotes_CamionA_Count', 'Lotes_CamionB_Count'], # Usamos el conteo por camión
+                color=['#0044FF', '#FF4B4B']
+            )
+        
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
