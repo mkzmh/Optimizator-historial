@@ -6,9 +6,11 @@ import os
 import time
 import json
 import gspread # Necesario para la conexión a Google Sheets
+from urllib.parse import quote # NECESARIO para codificar el GeoJSON en la URL
 
-# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
+# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic3.py')
+# Nota: Asumo que COORDENADAS_LOTES_REVERSO está definido aquí para generar el GeoJSON
+from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, COORDENADAS_LOTES_REVERSO
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
@@ -37,7 +39,6 @@ COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB",
 def generate_gmaps_link(stops_order):
     """
     Genera un enlace de Google Maps para una ruta con múltiples paradas.
-    La ruta comienza en el origen (Ingenio) y regresa a él.
     """
     if not stops_order:
         return '#'
@@ -63,12 +64,72 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-def generate_geojson_link(stops_order):
-    """
-    Función placeholder para generar el enlace GeoJSON.
-    Retorna '#' porque el GeoJSON real se generaría con una API externa (ORS/Mapbox).
-    """
-    return '#'
+# --- FUNCIÓN DE GENERACIÓN DE GEOJSON (PROPORCIONADA POR EL USUARIO) ---
+
+def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km):
+    features = []
+    num_points = len(points_sequence)
+    for i in range(num_points):
+        coords = points_sequence[i]
+        is_origin = (i == 0)
+        is_destination = (i == num_points - 1) and (i != 0)
+        is_intermediate = (i > 0) and (i < num_points - 1)
+        lote_name = "Ingenio"
+        
+        # Buscar el nombre del lote usando la coordenada
+        if is_intermediate or is_destination:
+            # Iterar sobre el diccionario invertido para encontrar el nombre del lote
+            for original_coords, name in COORDENADAS_LOTES_REVERSO.items():
+                # Comparación redondeada debido a posibles errores de coma flotante
+                if round(original_coords[0], 6) == round(coords[0], 6) and round(original_coords[1], 6) == round(coords[1], 6):
+                    lote_name = name
+                    break
+        
+        point_type = "PARADA INTERMEDIA"
+        color = "#ffa500"
+        symbol = str(i)
+        
+        if is_origin:
+            point_type = "ORIGEN (Ingenio)"
+            color = "#ff0000"
+            symbol = "star"
+        elif is_destination:
+            point_type = "DESTINO FINAL (Regreso al Ingenio)"
+            color = "#008000"
+            symbol = "square"
+        
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": coords},
+            "properties": {
+                "name": f"{i} - {point_type} ({lote_name})",
+                "marker-color": color,
+                "marker-symbol": symbol,
+                "order": i
+            }
+        })
+    
+    # Añadir la LineString (la ruta real)
+    features.append({
+        "type": "Feature",
+        "geometry": {"type": "LineString", "coordinates": path_coordinates},
+        "properties": {
+            "name": f"Ruta Completa: {route_name} (Ida y Vuelta)",
+            "stroke": "#0000ff",
+            "stroke-width": 4,
+            "distance_km": total_distance_km
+        }
+    })
+    
+    return {"type": "FeatureCollection", "features": features}
+
+# --- FUNCIÓN PARA GENERAR ENLACE DE GEOJSON.IO (PROPORCIONADA POR EL USUARIO) ---
+def generate_geojson_io_link(geojson_object):
+    geojson_string = json.dumps(geojson_object, separators=(',', ':'))
+    # Usamos quote para codificar el GeoJSON de forma segura en la URL
+    encoded_geojson = quote(geojson_string) 
+    base_url = "https://geojson.io/#data=data:application/json,"
+    return base_url + encoded_geojson
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -257,7 +318,8 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 
 if page == "Calcular Nueva Ruta":
     
-    # --- [MODIFICACIÓN: LOGO CENTRADO Y AJUSTES] ---
+    # --- [MODIFICACIÓN: LOGO Y TÍTULO ALINEADOS A LA IZQUIERDA] ---
+    
     # Centrado Universal Corregido: Usamos [4, 4, 2] para compensar el margen de Streamlit.
     col_left, col_logo, col_right = st.columns([4, 4, 2]) 
     
@@ -343,14 +405,23 @@ if page == "Calcular Nueva Ruta":
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
-                    # ✅ GENERACIÓN DE ENLACES DE NAVEGACIÓN
-                    # Ruta A
-                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
-                    results['ruta_a']['geojson_link'] = generate_geojson_link(results['ruta_a']['orden_optimo']) # Ahora llama a la función
+                    # --- SIMULACIÓN DE DATOS DE RUTA PARA GEOJSON ---
+                    # NOTA: En un entorno real, path_coordinates vendría de la API (ORS/Mapbox)
+                    # Aquí generamos coordenadas simples (recta) para que el GeoJSON funcione
+                    path_coordinates_a = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_a']['orden_optimo']] + [COORDENADAS_ORIGEN]
+                    path_coordinates_b = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_b']['orden_optimo']] + [COORDENADAS_ORIGEN]
                     
-                    # Ruta B
+                    # 1. Generar Objeto GeoJSON
+                    geojson_a = generate_geojson("Camión A", path_coordinates_a, path_coordinates_a, results['ruta_a']['distancia_km'])
+                    geojson_b = generate_geojson("Camión B", path_coordinates_b, path_coordinates_b, results['ruta_b']['distancia_km'])
+
+                    # 2. Generar Enlaces GeoJSON.io
+                    results['ruta_a']['geojson_link'] = generate_geojson_io_link(geojson_a)
+                    results['ruta_b']['geojson_link'] = generate_geojson_io_link(geojson_b)
+                    
+                    # 3. Generar Enlaces Google Maps
+                    results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
-                    results['ruta_b']['geojson_link'] = generate_geojson_link(results['ruta_b']['orden_optimo']) # Ahora llama a la función
 
                     # ✅ CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -552,7 +623,15 @@ elif page == "Estadísticas":
                     'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
             )
+
+            # Gráfico de Lotes Mensuales
+            st.markdown("##### Distribución de Lotes Asignados por Mes")
+            st.bar_chart(
+                monthly_stats,
+                x='Mes_str',
+                y=['Lotes_CamionA_Count', 'Lotes_CamionB_Count'], # Usamos el conteo por camión
+                color=['#0044FF', '#FF4B4B']
+            )
         
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
