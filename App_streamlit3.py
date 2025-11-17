@@ -101,16 +101,7 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
                 "order": i
             }
         })
-    features.append({
- "type": "Feature",
- "geometry": {"type": "LineString", "coordinates": path_coordinates},
- "properties": {
- "name": f"Ruta Completa: {route_name} (Ida y Vuelta)",
- "stroke": "#0000ff",
- "stroke-width": 4,
- "distance_km": total_distance_km
- }
- })
+    
     # !!! NOTA: SE HA ELIMINADO LA LINESTRING PARA REDUCIR EL TAMAÑO DEL JSON !!!
     
     return {"type": "FeatureCollection", "features": features}
@@ -637,7 +628,3 @@ elif page == "Estadísticas":
             )
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
-        st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
-
