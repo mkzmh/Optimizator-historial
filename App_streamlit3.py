@@ -623,12 +623,9 @@ elif page == "Estadísticas":
                     'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
                     'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
                     'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
-                   'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
-                    )
+                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
+            )
 
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
-
-
-
