@@ -8,7 +8,7 @@ import json
 import gspread # Necesario para la conexión a Google Sheets
 from urllib.parse import quote # NECESARIO para codificar el GeoJSON en la URL
 
-# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic3.py')
+# Importa la lógica y constantes del módulo vecino (Asegúrate que se llama 'routing_logic.py')
 # Nota: Asumo que COORDENADAS_LOTES_REVERSO está definido aquí para generar el GeoJSON
 from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, COORDENADAS_LOTES_REVERSO
 
@@ -34,11 +34,12 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
 
 
-# --- Funciones Auxiliares para Navegación ---
+# --- Funciones Auxiliares para Navegación y GEOJSON ---
 
 def generate_gmaps_link(stops_order):
     """
     Genera un enlace de Google Maps para una ruta con múltiples paradas.
+    La ruta comienza en el origen (Ingenio) y regresa a él.
     """
     if not stops_order:
         return '#'
@@ -64,20 +65,21 @@ def generate_gmaps_link(stops_order):
     # Une las partes con '/' para la URL de Google Maps directions (dir/Start/Waypoint1/Waypoint2/End)
     return "https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-# --- FUNCIÓN DE GENERACIÓN DE GEOJSON (PROPORCIONADA POR EL USUARIO) ---
-
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km):
+    """
+    Genera el objeto GeoJSON con puntos de parada y la LineString de la ruta.
+    """
     features = []
     num_points = len(points_sequence)
     for i in range(num_points):
         coords = points_sequence[i]
         is_origin = (i == 0)
-        is_destination = (i == num_points - 1) and (i != 0)
+        is_destination = (i == num_points - 1)
         is_intermediate = (i > 0) and (i < num_points - 1)
         lote_name = "Ingenio"
         
-        # Buscar el nombre del lote usando la coordenada
-        if is_intermediate or is_destination:
+        # Buscar el nombre del lote usando la coordenada (asumiendo que las coordenadas coinciden)
+        if is_intermediate or (is_destination and not is_origin):
             # Iterar sobre el diccionario invertido para encontrar el nombre del lote
             for original_coords, name in COORDENADAS_LOTES_REVERSO.items():
                 # Comparación redondeada debido a posibles errores de coma flotante
@@ -94,7 +96,7 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
             color = "#ff0000"
             symbol = "star"
         elif is_destination:
-            point_type = "DESTINO FINAL (Regreso al Ingenio)"
+            point_type = "DESTINO FINAL"
             color = "#008000"
             symbol = "square"
         
@@ -114,8 +116,8 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": path_coordinates},
         "properties": {
-            "name": f"Ruta Completa: {route_name} (Ida y Vuelta)",
-            "stroke": "#0000ff",
+            "name": f"Ruta Completa: {route_name}",
+            "stroke": "#0044FF" if route_name.endswith('A') else "#FF4B4B",
             "stroke-width": 4,
             "distance_km": total_distance_km
         }
@@ -123,8 +125,13 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
     
     return {"type": "FeatureCollection", "features": features}
 
-# --- FUNCIÓN PARA GENERAR ENLACE DE GEOJSON.IO (PROPORCIONADA POR EL USUARIO) ---
 def generate_geojson_io_link(geojson_object):
+    """
+    Genera el enlace GeoJSON.io codificando el objeto GeoJSON en la URL.
+    """
+    if not geojson_object:
+        return '#'
+        
     geojson_string = json.dumps(geojson_object, separators=(',', ':'))
     # Usamos quote para codificar el GeoJSON de forma segura en la URL
     encoded_geojson = quote(geojson_string) 
@@ -318,8 +325,7 @@ st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
 
 if page == "Calcular Nueva Ruta":
     
-    # --- [MODIFICACIÓN: LOGO Y TÍTULO ALINEADOS A LA IZQUIERDA] ---
-    
+    # --- [MODIFICACIÓN: LOGO CENTRADO Y AJUSTES] ---
     # Centrado Universal Corregido: Usamos [4, 4, 2] para compensar el margen de Streamlit.
     col_left, col_logo, col_right = st.columns([4, 4, 2]) 
     
@@ -406,8 +412,7 @@ if page == "Calcular Nueva Ruta":
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # --- SIMULACIÓN DE DATOS DE RUTA PARA GEOJSON ---
-                    # NOTA: En un entorno real, path_coordinates vendría de la API (ORS/Mapbox)
-                    # Aquí generamos coordenadas simples (recta) para que el GeoJSON funcione
+                    # En un entorno real, path_coordinates vendría de la API (ORS/Mapbox)
                     path_coordinates_a = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_a']['orden_optimo']] + [COORDENADAS_ORIGEN]
                     path_coordinates_b = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_b']['orden_optimo']] + [COORDENADAS_ORIGEN]
                     
@@ -487,7 +492,7 @@ if page == "Calcular Nueva Ruta":
             with st.container(border=True):
                 st.markdown(f"**Total Lotes:** {len(res_b.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A')} km**")
-                st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []))}`")
+                st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []) )}`")
                 st.info(f"**Orden Óptimo:** Ingenio → {' → '.join(res_b.get('orden_optimo', []))} → Ingenio")
                 
                 # Botón principal INICIAR RUTA
@@ -623,15 +628,5 @@ elif page == "Estadísticas":
                     'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
                 }
             )
-
-            # Gráfico de Lotes Mensuales
-            st.markdown("##### Distribución de Lotes Asignados por Mes")
-            st.bar_chart(
-                monthly_stats,
-                x='Mes_str',
-                y=['Lotes_CamionA_Count', 'Lotes_CamionB_Count'], # Usamos el conteo por camión
-                color=['#0044FF', '#FF4B4B']
-            )
-        
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
