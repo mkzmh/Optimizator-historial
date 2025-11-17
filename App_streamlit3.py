@@ -402,7 +402,8 @@ if page == "Calcular Nueva Ruta":
                     else:
                         st.warning("Advertencia: No se pudo optimizar la Ruta A. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
                         results['ruta_a']['gmaps_link'] = '#'
-                        if 'geojson_link' not in results['ruta_a']: results['ruta_a']['geojson_link'] = '#'
+                        # Aseguramos que GeoJSON exista con un valor seguro
+                        if 'geojson_link' not in results['ruta_a']: results['ruta_a']['geojson_link'] = 'https://geojson.io/'
 
                     if results['ruta_b'].get('orden_optimo'):
                         results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
@@ -410,7 +411,8 @@ if page == "Calcular Nueva Ruta":
                     else:
                         st.warning("Advertencia: No se pudo optimizar la Ruta B. Puede haber insuficientes lotes válidos o un error en la lógica de ruteo TSP.")
                         results['ruta_b']['gmaps_link'] = '#'
-                        if 'geojson_link' not in results['ruta_b']: results['ruta_b']['geojson_link'] = '#'
+                        # Aseguramos que GeoJSON exista con un valor seguro
+                        if 'geojson_link' not in results['ruta_b']: results['ruta_b']['geojson_link'] = 'https://geojson.io/'
 
                     # Generar los demás enlaces, asumiendo que el orden óptimo se generó correctamente
                     if results['ruta_a'].get('orden_optimo'):
@@ -461,7 +463,7 @@ if page == "Calcular Nueva Ruta":
         # GUARDIA ADICIONAL: Solo intentamos renderizar si tenemos rutas completas
         if not (res_a and res_b):
              st.error("Error: La estructura de resultados está incompleta.")
-             st.stop() # CORREGIDO: Usamos st.stop() para salir del flujo principal de la función
+             st.stop()
         
         st.divider()
         st.header("Análisis de Rutas Generadas")
@@ -485,26 +487,26 @@ if page == "Calcular Nueva Ruta":
             col_btn_a_1, col_btn_a_2, col_btn_a_3, col_btn_a_4, col_btn_a_5 = st.columns(5)
             
             # --- Ajuste de Link GeoJSON (Camión A) ---
+            # Si 'geojson_link' no existe o es '#' o no es http(s), lo forzamos a GeoJSON.io
             geojson_url_a = res_a.get('geojson_link', 'https://geojson.io/')
-            # Si la URL es la predeterminada o vacía, la forzamos a GeoJSON.io para evitar redirecciones.
             if geojson_url_a == '#' or not (geojson_url_a.startswith('http') or geojson_url_a.startswith('https')):
                 geojson_url_a = 'https://geojson.io/' 
             # -----------------------------------------
 
             with col_btn_a_1:
-                st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a")
+                # CORRECCIÓN DE ROBUSTEZ: Solo intentamos leer si res_a existe
+                if res_a: st.link_button("🗺️ Google Maps", res_a.get('gmaps_link', '#'), key="gmaps_a")
             
             with col_btn_a_2:
-                st.link_button("🌲 Mapy.cz", res_a.get('mapycz_link', '#'), key="mapycz_a") 
+                if res_a: st.link_button("🌲 Mapy.cz", res_a.get('mapycz_link', '#'), key="mapycz_a") 
             
             with col_btn_a_3:
-                st.link_button("🚗 Waze", res_a.get('waze_link', '#'), key="waze_a")
+                if res_a: st.link_button("🚗 Waze", res_a.get('waze_link', '#'), key="waze_a")
             
             with col_btn_a_4:
-                st.link_button("📍 Bing Maps", res_a.get('bing_link', '#'), key="bing_a")
+                if res_a: st.link_button("📍 Bing Maps", res_a.get('bing_link', '#'), key="bing_a")
             
             with col_btn_a_5:
-                # Usa la URL ajustada o la generada por la lógica
                 st.link_button("🌐 GeoJSON (Track)", geojson_url_a, key="geojson_a")
 
 
@@ -530,19 +532,19 @@ if page == "Calcular Nueva Ruta":
             # -----------------------------------------
 
             with col_btn_b_1:
-                st.link_button("🗺️ Google Maps", res_b.get('gmaps_link', '#'), key="gmaps_b")
+                # CORRECCIÓN DE ROBUSTEZ: Solo intentamos leer si res_b existe
+                if res_b: st.link_button("🗺️ Google Maps", res_b.get('gmaps_link', '#'), key="gmaps_b")
 
             with col_btn_b_2:
-                st.link_button("🌲 Mapy.cz", res_b.get('mapycz_link', '#'), key="mapycz_b")
+                if res_b: st.link_button("🌲 Mapy.cz", res_b.get('mapycz_link', '#'), key="mapycz_b")
             
             with col_btn_b_3:
-                st.link_button("🚗 Waze", res_b.get('waze_link', '#'), key="waze_b")
+                if res_b: st.link_button("🚗 Waze", res_b.get('waze_link', '#'), key="waze_b")
             
             with col_btn_b_4:
-                st.link_button("📍 Bing Maps", res_b.get('bing_link', '#'), key="bing_b")
+                if res_b: st.link_button("📍 Bing Maps", res_b.get('bing_link', '#'), key="bing_b")
             
             with col_btn_b_5:
-                # Usa la URL ajustada o la generada por la lógica
                 st.link_button("🌐 GeoJSON (Track)", geojson_url_b, key="geojson_b")
 
     else:
