@@ -1,32 +1,24 @@
-import numpy as np
-import pandas as pd
 import requests
 import json
-from sklearn.cluster import KMeans
-from scipy.spatial.distance import cdist
 from urllib.parse import quote
-import streamlit as st
 from math import radians, sin, cos, sqrt, atan2
 from itertools import combinations
 import time
 
 # =============================================================================
-# 1. CONSTANTES Y CONFIGURACIÓN (DEL ARCHIVO ORIGINAL)
+# 1. CONFIGURACIÓN BASE Y COORDENADAS
 # =============================================================================
 
-# NOTA: Usaremos la clave de secrets.toml en lugar de una constante en texto plano
-# API_KEY = "2ce810e0-dc57-4aa4-8099-bf0e33ec48e9" 
-URL_ROUTE = "https://graphhopper.com/api/1/route"
+API_KEY = "2ce810e0-dc57-4aa4-8099-bf0e33ec48e9"
+URL_ROUTE = f"https://graphhopper.com/api/1/route?key={API_KEY}"
 HEADERS = {'Content-Type': 'application/json'}
-
-# Coordenadas del archivo original (Lon, Lat)
 COORDENADAS_ORIGEN = [-64.245138888888889, -23.260327777777778]
 VEHICLES = {
 "AF820AB": {"name": "Camión 1 (Ruta A)"},
 "AE898TW": {"name": "Camión 2 (Ruta B)"},
 }
 
-# Diccionario de coordenadas (Completo) - (Mantenido del original)
+# Diccionario de coordenadas (Completo)
 COORDENADAS_LOTES = {
 "A01_1": [-64.254233333333332, -23.255027777777777], "A01_2": [-64.26275833333334, -23.24804166666667], "A05": [-64.25640277777778, -23.247030555555558],
 "A05_2": [-64.254025, -23.249480555555557], "A06_1": [-64.246711111111111, -23.245766666666668], "A06_2": [-64.246180555555554, -23.247272222222222],
@@ -135,7 +127,7 @@ COORDENADAS_LOTES = {
 "Z36": [-64.3991778, -23.1682306],"Z46": [-64.3931944, -23.16045],"Z47": [-64.4017583, -23.1545667],"Z37": [-64.4074389, -23.162975],
 "Z48": [-64.4107528, -23.1521556],"Z38": [-64.4162917, -23.1602778],"Z39": [-64.4233056, -23.153075],"Z60": [-64.4036417, -23.1462194],
 "Z58": [-64.3953444, -23.1536278],"Z59": [-64.3927667, -23.1477472],"Z57": [-64.3826194, -23.1516611],"Z56": [-64.37355, -23.1541972],
-"Z66": [-64.371525, -23.1427556],"Z67": [-64.3813028, -23.1407917],"Z77": [-64.3793611, -23.1340833],"Z76": [-64.3699528, -23.13529167],
+"Z66": [-64.371525, -23.1427556],"Z67": [-64.3813028, -23.1407917],"Z77": [-64.3793611, -23.1340833],"Z76": [-64.3699528, -23.1352917],
 "Z86": [-64.3702389, -23.1297167],"Z87": [-64.3653667, -23.1229],"Z79": [-64.390875, -23.1252889],"Z78": [-64.3796917, -23.1200583],
 "G01": [-64.4041389, -23.2068167],"G02": [-64.4097611, -23.2142667],"G06": [-64.4113528, -23.199625],"G25": [-64.4147556, -23.2212639],
 "G26": [-64.4207583, -23.2228008],"G21": [-64.4267556, -23.2366861],"G23": [-64.430825, -23.2416944],"G07": [-64.4181694, -23.2098583],
@@ -160,15 +152,9 @@ COORDENADAS_LOTES = {
 "R42": [-64.4186889, -23.48695],"R41": [-64.4208222, -23.4916],"R53": [-64.4263194, -23.4794833],"R52": [-64.4295222, -23.4851167],
 "R51": [-64.4310444, -23.4917139],"R63": [-64.4375389, -23.4779972],"R62": [-64.439425, -23.4839583],"R61": [-64.4418667, -23.489475],
 "R90": [-64.381875, -23.3536139],"R15": [-64.3893861, -23.4922389],"T03": [-64.4173361, -23.0667556],"T06": [-64.3934417, -23.0828278],
-"T15": [-64.3943528, -23.094475],"T05": [-64.4107361, -23.0856528],"T14": [-64.4059417, -23.0996639],"T01": [-64.4095889, -23.0744611],"T02": [-64.4168778, -23.0779889],"T04": [-64.4265167, -23.0728139],"T11": [-64.4363472, -23.0791306],"T10": [-64.4300167, -23.0873278],"T12": [-64.4255528, -23.0984612],"T07": [-64.3781167, -23.0853611],"T13": [-64.4219944, -23.1075944],"I78": [-64.4469278, -23.1280583],"I79": [-64.4539944, -23.1236694],"I77": [-64.4346667, -23.1191917],"I76": [-64.4394417, -23.1150444],"I75": [-64.4429111, -23.1104583],"I74": [-64.4451861, -23.1044694],"I73": [-64.4464944, -23.0988472],"I72": [-64.4489861, -23.0938083],"I71": [-64.4511, -23.08895],"I70": [-64.4417667, -23.0709083],"I61": [-64.3573722, -23.0735861],"I62": [-64.3668806, -23.0707389],"I65": [-64.3617167, -23.0335722],"I64": [-64.3617167, -23.0335722],"I63": [-64.3709583, -23.0356528],"I68_1": [-64.37575, -23.0340361],"I68_2": [-64.3819528, -23.0335139],"I60": [-64.3633417, -23.0805472],"I34": [-64.3750778, -23.0720917],"I32_1": [-64.3697028, -23.0683667],"I32_2": [-64.3840722, -23.0683083],"I32_3": [-64.3922389, -23.0674694],"I33": [-64.3940667, -23.0700473],"I25_1": [-64.3742444, -23.0628722],"I25_2": [-64.3814944, -23.0650833],"I18": [-64.4050806, -23.0653806],"I17": [-64.3957139, -23.0630056],"I23_1": [-64.378225, -23.0556639],"I23_2": [-64.3842167, -23.0503222],"I24_1": [-64.3913556, -23.0536083],"I24_2": [-64.3869694, -23.0596278],"I15": [-64.4004139, -23.057],"I14_1": [-64.4080917, -23.0616722],"I14_2": [-64.4138944, -23.0612],"I22": [-64.3831694, -23.0471944],"I20_1": [-64.3857472, -23.0426306],"I20_2": [-64.3893028, -23.038425],"I21_1": [-64.3942833, -23.0480694],"I21_2": [-64.3973889, -23.0431056],"I13_1": [-64.4018194, -23.0510222],"I13_2": [-64.4032528, -23.0461889],"I28_1": [-64.4073389, -23.0499472],"I28_2": [-64.4113139, -23.0512861],"I30_1": [-64.4141972, -23.0553889],"I30_2": [-64.4194306, -23.0552167],"I27": [-64.4040889, -23.0381556],"I26": [-64.4120389, -23.0436417],"I29_1": [-64.4220139, -23.0417417],"I29_2": [-64.4208639, -23.0479778],"I02": [-64.4141, -23.0383972],"I01_1": [-64.4140389, -23.0325278],"I01_2": [-64.4221639, -23.0354028],"I05": [-64.4039, -23.0285139],"I81": [-64.4283306, -23.0453361],"I82": [-64.4354694, -23.0443361],"I83": [-64.438028, -23.0291667],"I84": [-64.4339444, -23.0298722],"I85": [-64.4282222, -23.0115667],"I86": [-64.4332194, -23.013025],"I87": [-64.4222083, -22.9916028],"I88": [-64.4289972, -22.9917028],"I69": [-64.3716833, -23.0222194],"J43_1": [-64.4199472, -23.0288167],"J43_2": [-64.4148361, -23.0274528],"J41": [-64.4110167, -23.0238583],"J42_1": [-64.4059806, -23.0224111],"J42_2": [-64.4070139, -23.0151833],"J40": [-64.4141833, -23.0178861],"J44": [-64.4219694, -23.0174306],"J31": [-64.4156278, -23.0117556],"J30": [-64.4121917, -23.0058111],"J32_1": [-64.4219667, -23.0058722],"J32_2": [-64.4182639, -22.9998056],"J28": [-64.4124056, -22.9975944],"J57": [-64.3920722, -23.0182889],"J58": [-64.3941972, -23.0140250],"J56": [-64.3923611, -23.0093472],"J59_1": [-64.3986000, -23.0100722],"J59_2": [-64.3971556, -23.0083444],"J21_1": [-64.4001972, -23.0037111],"J21_2": [-64.3928972, -23.0040778],"J20": [-64.4043472, -22.9967556],"J55": [-64.3828333, -23.0063111],"J52": [-64.3734472, -23.0149167],"J54": [-64.3778222, -23.0041972],"J53": [-64.3698750, -23.0038473],"J22": [-64.3989333, -22.9989311],"J15": [-64.3987889, -22.9878944],"J16": [-64.3915417, -22.9876278],"J14": [-64.4045722, -23.23276111],"J09_1": [-64.4173361, -23.23276111],"J09_2": [-64.4076806, -22.9813861],"J10_1": [-64.4173361, -23.23276111],"J10_2": [-64.4079306, -22.9757361],"J13": [-64.4005000, -22.9695972],"J12_1": [-64.4109222, -22.9689833],"J12_2": [-64.4167222, -22.9698750],"J01": [-64.4208667, -22.9670500],"J05": [-64.4102583, -22.9636639],"J03": [-64.4106556, -22.9585333],"J02": [-64.4171278, -22.9630000],
+"T15": [-64.3943528, -23.094475],"T05": [-64.4107361, -23.0856528],"T14": [-64.4059417, -23.0996639],"T01": [-64.4095889, -23.0744611],"T02": [-64.4168778, -23.0779889],"T04": [-64.4265167, -23.0728139],"T11": [-64.4363472, -23.0791306],"T10": [-64.4300167, -23.0873278],"T12": [-64.4255528, -23.0984611],"T07": [-64.3781167, -23.0853611],"T13": [-64.4219944, -23.1075944],"I78": [-64.4469278, -23.1280583],"I79": [-64.4539944, -23.1236694],"I77": [-64.4346667, -23.1191917],"I76": [-64.4394417, -23.1150444],"I75": [-64.4429111, -23.1104583],"I74": [-64.4451861, -23.1044694],"I73": [-64.4464944, -23.0988472],"I72": [-64.4489861, -23.0938083],"I71": [-64.4511, -23.08895],"I70": [-64.4417667, -23.0709083],"I61": [-64.3573722, -23.0735861],"I62": [-64.3668806, -23.0707389],"I65": [-64.3617167, -23.0335722],"I64": [-64.3617167, -23.0335722],"I63": [-64.3709583, -23.0356528],"I68_1": [-64.37575, -23.0340361],"I68_2": [-64.3819528, -23.0335139],"I60": [-64.3633417, -23.0805472],"I34": [-64.3750778, -23.0720917],"I32_1": [-64.3697028, -23.0683667],"I32_2": [-64.3840722, -23.0683083],"I32_3": [-64.3922389, -23.0674694],"I33": [-64.3940667, -23.0700472],"I25_1": [-64.3742444, -23.0628722],"I25_2": [-64.3814944, -23.0650833],"I18": [-64.4050806, -23.0653806],"I17": [-64.3957139, -23.0630056],"I23_1": [-64.378225, -23.0556639],"I23_2": [-64.3842167, -23.0503222],"I24_1": [-64.3913556, -23.0536083],"I24_2": [-64.3869694, -23.0596278],"I15": [-64.4004139, -23.057],"I14_1": [-64.4080917, -23.0616722],"I14_2": [-64.4138944, -23.0612],"I22": [-64.3831694, -23.0471944],"I20_1": [-64.3857472, -23.0426306],"I20_2": [-64.3893028, -23.038425],"I21_1": [-64.3942833, -23.0480694],"I21_2": [-64.3973889, -23.0431056],"I13_1": [-64.4018194, -23.0510222],"I13_2": [-64.4032528, -23.0461889],"I28_1": [-64.4073389, -23.0499472],"I28_2": [-64.4113139, -23.0512861],"I30_1": [-64.4141972, -23.0553889],"I30_2": [-64.4194306, -23.0552167],"I27": [-64.4040889, -23.0381556],"I26": [-64.4120389, -23.0436417],"I29_1": [-64.4220139, -23.0417417],"I29_2": [-64.4208639, -23.0479778],"I02": [-64.4141, -23.0383972],"I01_1": [-64.4140389, -23.0325278],"I01_2": [-64.4221639, -23.0354028],"I05": [-64.4039, -23.0285139],"I81": [-64.4283306, -23.0453361],"I82": [-64.4354694, -23.0443361],"I83": [-64.438028, -23.0291667],"I84": [-64.4339444, -23.0298722],"I85": [-64.4282222, -23.0115667],"I86": [-64.4332194, -23.013025],"I87": [-64.4222083, -22.9916028],"I88": [-64.4289972, -22.9917028],"I69": [-64.3716833, -23.0222194],"J43_1": [-64.4199472, -23.0288167],"J43_2": [-64.4148361, -23.0274528],"J41": [-64.4110167, -23.0238583],"J42_1": [-64.4059806, -23.0224111],"J42_2": [-64.4070139, -23.0151833],"J40": [-64.4141833, -23.0178861],"J44": [-64.4219694, -23.0174306],"J31": [-64.4156278, -23.0117556],"J30": [-64.4121917, -23.0058111],"J32_1": [-64.4219667, -23.0058722],"J32_2": [-64.4182639, -22.9998056],"J28": [-64.4124056, -22.9975944],"J57": [-64.3920722, -23.0182889],"J58": [-64.3941972, -23.0140250],"J56": [-64.3923611, -23.0093472],"J59_1": [-64.3986000, -23.0100722],"J59_2": [-64.3971556, -23.0083444],"J21_1": [-64.4001972, -23.0037111],"J21_2": [-64.3928972, -23.0040778],"J20": [-64.4043472, -22.9967556],"J55": [-64.3828333, -23.0063111],"J52": [-64.3734472, -23.0149167],"J54": [-64.3778222, -23.0041972],"J53": [-64.3698750, -23.0038472],"J22": [-64.3989333, -22.9989311],"J15": [-64.3987889, -22.9878944],"J16": [-64.3915417, -22.9876278],"J14": [-64.4045722, -23.23276111],"J09_1": [-64.3991389, -22.9819722],"J09_2": [-64.4076806, -22.9813861],"J10_1": [-64.3990333, -22.9757417],"J10_2": [-64.4079306, -22.9757361],"J13": [-64.4005000, -22.9695972],"J12_1": [-64.4109222, -22.9689833],"J12_2": [-64.4167222, -22.9698750],"J01": [-64.4208667, -22.9670500],"J05": [-64.4102583, -22.9636639],"J03": [-64.4106556, -22.9585333],"J02": [-64.4171278, -22.9630000],
 }
 COORDENADAS_LOTES_REVERSO = {tuple(v): k for k, v in COORDENADAS_LOTES.items()}
-
-try:
-    GH_API_KEY = st.secrets["gh"]["api_key"]
-except KeyError:
-    GH_API_KEY = "dummy_key" # Clave falsa para que el código funcione localmente sin secrets
-
 
 # =============================================================================
 # 2. FUNCIONES AUXILIARES (DEBE TENER SANGRÍA INTERNA)
@@ -192,134 +178,81 @@ def find_best_grouping_variable(all_lotes, min_group_size=1):
     best_group_b = None
     all_lotes_set = set(all_lotes)
     N = len(all_lotes)
-    
-    # K-Means simple para la agrupación inicial (más rápido que fuerza bruta)
-    lotes_points = np.array([COORDENADAS_LOTES[l] for l in all_lotes])
-    
-    if len(lotes_points) < 2:
-        return [all_lotes], [], 0.0
-
-    # Usamos k-means si hay más de 2 lotes, si no, lo dividimos por la mitad simple.
-    if N >= 2:
-        # Intentar k-means
-        try:
-            kmeans = KMeans(n_clusters=2, random_state=42, n_init='auto')
-            labels = kmeans.fit_predict(lotes_points)
+    for size_a in range(min_group_size, N - min_group_size + 1):
+        for group_a_tuple in combinations(all_lotes, size_a):
+            group_a = list(group_a_tuple)
+            group_b = list(all_lotes_set - set(group_a))
             
-            group_a = [all_lotes[i] for i, label in enumerate(labels) if label == 0]
-            group_b = [all_lotes[i] for i, label in enumerate(labels) if label == 1]
-            
-            if not group_a or not group_b:
-                raise ValueError("K-Means no logró dividir los lotes.")
+            # Función anidada para calcular distancia interna (indenta correctamente)
+            def calculate_internal_distance(group):
+                dist = 0
+                L = len(group)
+                if L < 2:
+                    return 0
+                for i in range(L):
+                    for j in range(i + 1, L):
+                        lote1 = group[i]
+                        lote2 = group[j]
+                        coord1 = COORDENADAS_LOTES[lote1]
+                        coord2 = COORDENADAS_LOTES[lote2]
+                        dist += haversine(coord1, coord2)
+                return dist
                 
-            # Calcular la métrica de distancia interna usando solo los centros del cluster (método rápido)
-            center_a = np.mean([COORDENADAS_LOTES[l] for l in group_a], axis=0)
-            center_b = np.mean([COORDENADAS_LOTES[l] for l in group_b], axis=0)
-            internal_distance_km = haversine(center_a, center_b) / 1000.0
-            
-            return group_a, group_b, round(internal_distance_km, 2)
-        
-        except Exception:
-            # Fallback a la división simple si k-means falla
-            mid_point = N // 2
-            group_a = all_lotes[:mid_point]
-            group_b = all_lotes[mid_point:]
-            # Usar distancia Haversine simple como métrica
-            return group_a, group_b, 0.0 # Se asume 0.0 para evitar cálculos complejos en el fallback
+            dist_a = calculate_internal_distance(group_a)
+            dist_b = calculate_internal_distance(group_b)
+            current_total_distance = dist_a + dist_b
+            if current_total_distance < min_total_internal_distance:
+                min_total_internal_distance = current_total_distance
+                best_group_a = group_a
+                best_group_b = group_b
+    return best_group_a, best_group_b, round(min_total_internal_distance / 1000, 2)
 
-
-    # Fallback si solo hay 1 lote
-    return all_lotes, [], 0.0
-
-
-def make_api_request(points_list, vehicle="car", optimize="true"):
-    """
-    Solicita a GraphHopper la matriz de distancias (o la ruta si no hay optimize=true)
-    Se ajusta para solicitar la ruta optimizada (si optimize="true" está presente).
-    """
-    URL_ROUTE_FINAL = f"{URL_ROUTE}?key={GH_API_KEY}"
-    
-    # Convertir a formato lon,lat para GraphHopper
-    points_coords_gh = [[lon, lat] for lon, lat in points_list]
-    
+def make_api_request(points_list):
+    URL_ROUTE_FINAL = f"https://graphhopper.com/api/1/route?key={API_KEY}"
     request_body = {
-        "points": points_coords_gh,
-        "vehicle": vehicle,
+        "points": points_list,
+        "vehicle": "car",
         "locale": "es",
         "instructions": False,
         "points_encoded": False,
-        "optimize": optimize
+        "optimize": "true"
     }
-    
-    # CRÍTICO: Asegurarse de que GraphHopper devuelva la polilínea (está incluido por defecto si no se pide matriz)
-    # y los datos del orden óptimo.
-    
     try:
         response = requests.post(URL_ROUTE_FINAL, headers=HEADERS, data=json.dumps(request_body))
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
-        st.error(f"Error HTTP {response.status_code} de GraphHopper: {response.text}")
         return None
     except requests.exceptions.RequestException as e:
-        st.error(f"Error de conexión con GraphHopper: {e}")
         return None
-    except Exception as e:
-        st.error(f"Error inesperado en make_api_request: {e}")
+    except KeyError as e:
         return None
 
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km, vehicle_id):
-    """
-    Genera el objeto GeoJSON con puntos y la traza de carretera.
-    """
     features = []
     num_points = len(points_sequence)
-    
-    # Mapeo de colores para las líneas (lon, lat)
-    color_map = {"AF820AB": "#0044FF", "AE898TW": "#FF4B4B"}
+    color_map = {"AF820AB": "#0080FF", "AE898TW": "#FF4500"}
     line_color = color_map.get(vehicle_id, "#000000")
-
-    # 1. GENERAR LINESTRING (TRAZA)
-    features.append({
-        "type": "Feature",
-        "geometry": {"type": "LineString", "coordinates": path_coordinates},
-        "properties": {
-            "name": f"Ruta Completa: {route_name}",
-            "stroke": line_color,
-            "stroke-width": 4,
-            "distance_km": total_distance_km,
-            "vehicle": vehicle_id
-        }
-    })
-
-    # 2. GENERAR PUNTOS (MARCADORES)
-    coordenadas_lotes_inverso_ronda = {
-        (round(v[0], 6), round(v[1], 6)): k 
-        for k, v in COORDENADAS_LOTES.items()
-    }
-    
     for i in range(num_points):
         coords = points_sequence[i]
         is_origin = (i == 0)
         is_destination = (i == num_points - 1)
-        
         lote_name = "Ingenio"
+        if not is_origin and not is_destination:
+            lote_name = next((name for original_coords, name in COORDENADAS_LOTES_REVERSO.items()
+                             if round(original_coords[0], 6) == round(coords[0], 6) and round(original_coords[1], 6) == round(coords[1], 6)),
+                             "Punto Intermedio")
         point_type = "PARADA INTERMEDIA"
-        color = line_color 
+        color = line_color
         symbol = str(i)
-        
         if is_origin:
             point_type = "ORIGEN (Ingenio)"
-            color = "#ff0000"
+            color = "#008000"
             symbol = "star"
         elif is_destination:
             point_type = "DESTINO FINAL (Regreso al Ingenio)"
-            color = "#008000"
+            color = "#FF0000"
             symbol = "square"
-        elif i > 0 and i < num_points - 1:
-            coord_key = (round(coords[0], 6), round(coords[1], 6))
-            lote_name = coordenadas_lotes_inverso_ronda.get(coord_key, "Lote Desconocido")
-
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": coords},
@@ -331,118 +264,76 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
                 "vehicle": vehicle_id
             }
         })
-    
+    features.append({
+        "type": "Feature",
+        "geometry": {"type": "LineString", "coordinates": path_coordinates},
+        "properties": {
+            "name": f"Ruta Completa: {route_name}",
+            "stroke": line_color,
+            "stroke-width": 4,
+            "distance_km": total_distance_km,
+            "vehicle": vehicle_id
+        }
+    })
     return {"type": "FeatureCollection", "features": features}
 
-
 def generate_geojson_io_link(geojson_object):
-    """
-    Genera el enlace GeoJSON.io con compactación máxima.
-    """
-    if not geojson_object:
-        return "#"
-    try:
-        # Compactación máxima (CRÍTICO para polyline larga)
-        geojson_string = json.dumps(geojson_object, separators=(',', ':'))
-        encoded_geojson = quote(geojson_string)
-        base_url = "https://geojson.io/#data=data:application/json,"
-        return base_url + encoded_geojson
-    except Exception:
-        return "#"
+    geojson_string = json.dumps(geojson_object, separators=(',', ':'))
+    encoded_geojson = quote(geojson_string)
+    base_url = "https://geojson.io/#data=data:application/json,"
+    return base_url + encoded_geojson
 
 # =============================================================================
 # 3. FUNCIÓN PRINCIPAL EXPORTABLE (solve_route_optimization)
 # =============================================================================
 
 def solve_route_optimization(all_intermediate_stops):
-    # Aseguramos que la clave de la API esté disponible
-    if GH_API_KEY == "dummy_key":
-         return {"error": "ERROR: La clave de GraphHopper no está configurada en Streamlit Secrets."}
-        
-    group_a_names, group_b_names, internal_dist_metric = find_best_grouping_variable(all_intermediate_stops)
-    
-    if not group_a_names and not group_b_names:
-        return {"error": "No se encontraron lotes válidos para la optimización."}
-
+    group_a_names, group_b_names, min_internal_dist = find_best_grouping_variable(all_intermediate_stops)
+    if not group_a_names or not group_b_names:
+        return {"error": "No se pudo realizar la agrupación de lotes."}
     VEHICLE_A_ID = "AF820AB"
     VEHICLE_B_ID = "AE898TW"
-    results = {"agrupacion_distancia_km": internal_dist_metric}
+    results = {"agrupacion_distancia_km": min_internal_dist}
 
-    # --- FUNCIÓN ANIDADA PARA PROCESAR UNA RUTA ---
-    def process_route(group_names, vehicle_id, route_key):
-        if not group_names:
-            return None, 0, []
+    # --- RUTA A (AF820AB) ---
+    all_stops_coords_A = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_a_names] + [COORDENADAS_ORIGEN]
+    response_A = make_api_request(all_stops_coords_A)
+    if response_A:
+        TOTAL_DISTANCE_KM_A = round(response_A['paths'][0]['distance'] / 1000, 2)
+        optimized_indices_A = response_A['paths'][0]['points_order']
+        all_stops_names_A = ["Ingenio"] + group_a_names + ["Ingenio"]
+        optimized_name_sequence_A = [all_stops_names_A[i] for i in optimized_indices_A]
+        results["ruta_a"] = {
+            "patente": VEHICLE_A_ID,
+            "nombre": VEHICLES[VEHICLE_A_ID]['name'],
+            "lotes_asignados": group_a_names,
+            "distancia_km": TOTAL_DISTANCE_KM_A,
+            "orden_optimo": optimized_name_sequence_A[1:-1],
+            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta A", [all_stops_coords_A[i] for i in optimized_indices_A], response_A['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_A, VEHICLE_A_ID))
+        }
+    else:
+        return {"error": "Fallo al obtener la Ruta A de la API. (Verifique API Key o límites)"}
 
-        # 1. Puntos que entran a la API: [Origen] + [Lotes] + [Origen]
-        all_stops_coords = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_names] + [COORDENADAS_ORIGEN]
-        all_stops_names = ["Ingenio"] + group_names + ["Ingenio"]
+    # RETARDO PARA EVITAR LÍMITE DE API
+    time.sleep(75)
 
-        # 2. Llamada a la API de Ruteo/TSP (con optimize=true)
-        response = make_api_request(all_stops_coords, vehicle="car", optimize="true")
-
-        if response and response.get('paths'):
-            path_data = response['paths'][0]
-            TOTAL_DISTANCE_KM = round(path_data.get('distance', 0) / 1000, 2)
-            
-            # El orden óptimo devuelto por GraphHopper es el índice de 'all_stops_coords'
-            optimized_indices = path_data.get('points_order', list(range(len(all_stops_coords))))
-            
-            # Secuencia de nombres optimizada (Origen -> Lotes -> Destino)
-            optimized_name_sequence = [all_stops_names[i] for i in optimized_indices]
-            optimized_lotes_only = optimized_name_sequence[1:-1]
-            
-            # Secuencia de coordenadas de los marcadores (ordenadas)
-            optimized_marker_coords = [all_stops_coords[i] for i in optimized_indices]
-            
-            # Polilínea detallada para dibujar la traza (el GeoJSON)
-            polyline_coords = path_data['points']['coordinates']
-
-            # Generar el GeoJSON
-            geojson_obj = generate_geojson(
-                route_key.upper(), 
-                optimized_marker_coords, 
-                polyline_coords, 
-                TOTAL_DISTANCE_KM, 
-                vehicle_id
-            )
-            geojson_link = generate_geojson_io_link(geojson_obj)
-
-            return {
-                "patente": vehicle_id,
-                "nombre": VEHICLES[vehicle_id]['name'],
-                "lotes_asignados": group_names,
-                "distancia_km": TOTAL_DISTANCE_KM,
-                "orden_optimo": optimized_lotes_only,
-                "geojson_link": geojson_link
-            }, TOTAL_DISTANCE_KM, polyline_coords
-        
-        return None, 0, []
-    # --- FIN DE FUNCIÓN ANIDADA ---
-
-    # --- EJECUTAR RUTAS ---
-    
-    # RUTA A
-    route_a_data, _, _ = process_route(group_a_names, VEHICLE_A_ID, "ruta_a")
-    if route_a_data is None:
-        return {"error": "Fallo al obtener datos de la Ruta A de la API."}
-    results["ruta_a"] = route_a_data
-    
-    # RETARDO (Recomendado para evitar límites de API)
-    time.sleep(1)
-
-    # RUTA B
-    route_b_data, _, _ = process_route(group_b_names, VEHICLE_B_ID, "ruta_b")
-    if route_b_data is None:
-        # Asumiendo que B puede estar vacío si A tomó todos los lotes (aunque el clustering lo evita)
+    # --- RUTA B (AE898TW) ---
+    all_stops_coords_B = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_b_names] + [COORDENADAS_ORIGEN]
+    response_B = make_api_request(all_stops_coords_B)
+    if response_B:
+        TOTAL_DISTANCE_KM_B = round(response_B['paths'][0]['distance'] / 1000, 2)
+        optimized_indices_B = response_B['paths'][0]['points_order']
+        all_stops_names_B = ["Ingenio"] + group_b_names + ["Ingenio"]
+        optimized_name_sequence_B = [all_stops_names_B[i] for i in optimized_indices_B]
         results["ruta_b"] = {
             "patente": VEHICLE_B_ID,
             "nombre": VEHICLES[VEHICLE_B_ID]['name'],
-            "lotes_asignados": [], "distancia_km": 0.0, 
-            "orden_optimo": [], "geojson_link": "#"
+            "lotes_asignados": group_b_names,
+            "distancia_km": TOTAL_DISTANCE_KM_B,
+            "orden_optimo": optimized_name_sequence_B[1:-1],
+            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta B", [all_stops_coords_B[i] for i in optimized_indices_B], response_B['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_B, VEHICLE_B_ID))
         }
     else:
-        results["ruta_b"] = route_b_data
-
+        return {"error": "Fallo al obtener la Ruta B de la API. (Verifique API Key o límites)"}
 
     return results
-
