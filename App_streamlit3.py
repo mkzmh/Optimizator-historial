@@ -64,12 +64,6 @@ def generate_gmaps_link(stops_order):
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km):
     """
     Genera el objeto GeoJSON incluyendo los puntos de parada y la traza de la ruta (LineString).
-    
-    Args:
-        route_name (str): Nombre de la ruta (ej: "Camión A").
-        points_sequence (list): Lista de coordenadas [lon, lat] en el orden optimizado.
-        path_coordinates (list): Misma lista que points_sequence, usada para LineString.
-        total_distance_km (float): Distancia total de la ruta.
     """
     features = []
     num_points = len(path_coordinates)
@@ -80,7 +74,6 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
         "type": "Feature",
         "geometry": {
             "type": "LineString",
-            # Las coordenadas deben ser una lista de [lon, lat]
             "coordinates": path_coordinates 
         },
         "properties": {
@@ -95,7 +88,6 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
     # 2. GENERAR LOS FEATURES DE LOS PUNTOS (POINT)
     
     # Creamos un diccionario inverso robusto para etiquetar los puntos intermedios
-    # Se redondea a 6 decimales para la comparación de claves de coordenadas.
     coordenadas_lotes_inverso_ronda = {
         (round(v[0], 6), round(v[1], 6)): k 
         for k, v in COORDENADAS_LOTES.items()
@@ -107,7 +99,7 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
         # Lógica para determinar el nombre del punto
         lote_name = "Ingenio"
         point_type = "PARADA"
-        color = "#ffa500" # Naranja para paradas intermedias
+        color = "#ffa500"
         symbol = str(i)
         
         # Si no es ni el primer punto (i=0) ni el último (i=num_points - 1), es una parada intermedia (Lote)
@@ -118,11 +110,11 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
         
         if i == 0:
             point_type = "ORIGEN (Ingenio)"
-            color = "#ff0000" # Rojo para origen
+            color = "#ff0000"
             symbol = "star"
         elif i == num_points - 1:
             point_type = "DESTINO FINAL (Ingenio)"
-            color = "#008000" # Verde para destino
+            color = "#008000"
             symbol = "square"
         
         features.append({
@@ -141,13 +133,12 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
 
 def generate_geojson_string(geojson_object):
     """
-    Genera la cadena JSON legible de la ruta.
+    Genera la cadena JSON legible de la ruta (útil para debugging).
     """
     if not geojson_object:
         return None
         
     try:
-        # Importante: No se reduce la información, solo se formatea para legibilidad.
         return json.dumps(geojson_object, indent=2)
     except Exception:
         return 'Error de formato en el GeoJSON generado.'
@@ -155,14 +146,15 @@ def generate_geojson_string(geojson_object):
 def generate_geojson_io_link(geojson_object):
     """
     Genera el enlace GeoJSON.io codificando el objeto GeoJSON en la URL.
+    *** NO SE APLICA COMPACTACIÓN EXTREMA PARA PRESERVAR LA INTEGRIDAD DEL JSON ***
     """
     if not geojson_object or not geojson_object.get('features'):
         return "https://geojson.io/"
         
     try:
-        # Compacta el JSON al máximo para el enlace (separators=(',', ':'))
-        # Esto reduce la longitud de la URL sin eliminar datos críticos.
-        geojson_string = json.dumps(geojson_object, separators=(',', ':'))
+        # Generamos el string JSON sin compactación extrema (más legible y compatible)
+        geojson_string = json.dumps(geojson_object)
+        
         # Usamos quote para codificar el GeoJSON de forma segura en la URL
         encoded_geojson = quote(geojson_string) 
         base_url = "https://geojson.io/#data=data:application/json,"
