@@ -1,79 +1,3 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-import pytz
-import os
-import time
-import json
-import gspread
-from urllib.parse import quote
-import numpy as np
-from sklearn.cluster import KMeans # Necesario para la pre-visualización
-
-# Importa la lógica y constantes del módulo vecino.
-from Routing_logic3 import (
-    COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, 
-    generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO 
-)
-
-# =============================================================================
-# CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
-# =============================================================================
-
-st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
-
-# --- ZONA HORARIA ARGENTINA (GMT-3) ---
-ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
-
-# Ocultar menú de Streamlit y footer
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    </style>
-    """, unsafe_allow_html=True)
-
-# Encabezados en el orden de Google Sheets
-COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
-
-
-# =============================================================================
-# FUNCIONES AUXILIARES (NAVEGACIÓN, GEOJSON Y CLUSTERING)
-# =============================================================================
-
-def generate_gmaps_link(stops_order):
-    """
-    Genera un enlace de Google Maps para una ruta con múltiples paradas.
-    La ruta comienza en el origen (Ingenio) y regresa a él.
-    """
-    if not stops_order:
-        return '#'
-
-    # COORDENADAS_ORIGEN es (lon, lat). GMaps requiere lat,lon.
-    lon_orig, lat_orig = COORDENADAS_ORIGEN
-    
-    route_parts = [f"{lat_orig},{lon_orig}"] # Origen
-    
-    # Añadir paradas intermedias
-    for stop_lote in stops_order:
-        if stop_lote in COORDENADAS_LOTES:
-            lon, lat = COORDENADAS_LOTES[stop_lote]
-            route_parts.append(f"{lat},{lon}") # lat,lon
-
-    # Añadir destino final (regreso al origen)
-    route_parts.append(f"{lat_orig},{lon_orig}")
-
-    # Une las partes con '/' para la URL de Google Maps directions
-    return f"https://www.google.com/maps/dir/{lat_orig},{lon_orig}/" + "/".join(route_parts[1:])
-
-
-def get_initial_group_colors(valid_lotes):
-    """
-    Realiza K-Means simple para asignar colores a los lotes (Camión A/B) para la pre-visualización.
-    Devuelve un diccionario {lote_name: color_hex}.
-    """
-    if len(valid_lotes) < 2:
-        return {l: '#import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
@@ -618,3 +542,4 @@ elif page == "Estadísticas":
             )
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
