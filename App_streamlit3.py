@@ -70,7 +70,7 @@ st.markdown("""
 
 # Encabezados en el orden de Google Sheets
 
-COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB, Km Totales"]
+COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB", "Km Totales"]
 
 
 
@@ -1031,3 +1031,4 @@ elif page == "Estadísticas":
         st.divider()
 
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
