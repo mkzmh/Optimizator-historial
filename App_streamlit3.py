@@ -8,9 +8,13 @@ import json
 import gspread
 from urllib.parse import quote
 
-# Importa la lógica y constantes del módulo vecino
-# Nota: Se asume que COORDENADAS_LOTES y COORDENADAS_ORIGEN están definidos en Routing_logic3
-from Routing_logic3 import COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN
+# Importa la lógica y constantes del módulo vecino.
+# NOTA: Asumimos que las funciones de GeoJSON (generate_geojson_io_link, generate_geojson)
+# YA están definidas en Routing_logic3.py y se importan correctamente.
+from Routing_logic3 import (
+    COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, 
+    generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO # Aseguramos las importaciones necesarias
+)
 
 # =============================================================================
 # CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
@@ -33,7 +37,7 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
 
 
-# --- Funciones Auxiliares para Navegación y GEOJSON ---
+# --- Funciones Auxiliares para Navegación ---
 
 def generate_gmaps_link(stops_order):
     """
@@ -59,109 +63,6 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions
     return f"https://www.google.com/maps/dir/{lat_orig},{lon_orig}/" + "/".join(route_parts[1:])
-
-
-def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km):
-    """
-    Genera el objeto GeoJSON incluyendo los puntos de parada y la traza de la ruta (LineString).
-    """
-    features = []
-    # Usamos la longitud de la secuencia de puntos de parada para los marcadores
-    num_points = len(points_sequence) 
-    
-    # 1. GENERAR EL FEATURE DE LA TRAZA (LINESTRING)
-    line_feature = {
-        "type": "Feature",
-        "geometry": {
-            "type": "LineString",
-            # CRÍTICO: path_coordinates debe ser la lista larga de coordenadas (polyline)
-            "coordinates": path_coordinates 
-        },
-        "properties": {
-            "name": f"Traza Ruta {route_name} ({total_distance_km:.2f} km)",
-            "stroke": "#0044FF" if route_name.endswith('A') else "#FF4B4B", # Azul/Rojo para las rutas
-            "stroke-width": 4,
-            "stroke-opacity": 0.7
-        }
-    }
-    features.append(line_feature) # Añadimos la traza primero
-
-    # 2. GENERAR LOS FEATURES DE LOS PUNTOS (POINT)
-    
-    # Creamos un diccionario inverso robusto para etiquetar los puntos intermedios
-    coordenadas_lotes_inverso_ronda = {
-        (round(v[0], 6), round(v[1], 6)): k 
-        for k, v in COORDENADAS_LOTES.items()
-    }
-    
-    for i in range(num_points):
-        coords = points_sequence[i] # Coordenadas del punto [lon, lat]
-        
-        # Lógica para determinar el nombre del punto
-        lote_name = "Ingenio"
-        point_type = "PARADA"
-        color = "#ffa500"
-        symbol = str(i)
-        
-        # Si no es ni el primer punto (i=0) ni el último (i=num_points - 1), es una parada intermedia (Lote)
-        if i > 0 and i < num_points - 1:
-            coord_key = (round(coords[0], 6), round(coords[1], 6))
-            lote_name = coordenadas_lotes_inverso_ronda.get(coord_key, "Lote Desconocido")
-            point_type = "LOTE"
-        
-        if i == 0:
-            point_type = "ORIGEN (Ingenio)"
-            color = "#ff0000"
-            symbol = "star"
-        elif i == num_points - 1:
-            point_type = "DESTINO FINAL (Ingenio)"
-            color = "#008000"
-            symbol = "square"
-        
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": coords},
-            "properties": {
-                "name": f"{i} - {point_type} ({lote_name})",
-                "marker-color": color,
-                "marker-symbol": symbol,
-                "order": i
-            }
-        })
-    
-    return {"type": "FeatureCollection", "features": features}
-
-
-def generate_geojson_string(geojson_object):
-    """
-    Genera la cadena JSON legible de la ruta (útil para debugging).
-    """
-    if not geojson_object:
-        return None
-        
-    try:
-        return json.dumps(geojson_object, indent=2)
-    except Exception:
-        return 'Error de formato en el GeoJSON generado.'
-
-def generate_geojson_io_link(geojson_object):
-    """
-    Genera el enlace GeoJSON.io codificando el objeto GeoJSON en la URL.
-    *** REVERSIÓN: USAMOS COMPACTACIÓN MÁXIMA PARA GARANTIZAR QUE LA POLYLINE CABE EN LA URL ***
-    """
-    if not geojson_object or not geojson_object.get('features'):
-        return "https://geojson.io/"
-        
-    try:
-        # Revertimos a la compactación máxima (separators=(',', ':'))
-        geojson_string = json.dumps(geojson_object, separators=(',', ':'))
-        
-        # Codificación para URL
-        encoded_geojson = quote(geojson_string) 
-        base_url = "https://geojson.io/#data=data:application/json,"
-        return base_url + encoded_geojson
-    except Exception:
-        return "https://geojson.io/"
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -415,42 +316,13 @@ if page == "Calcular Nueva Ruta":
             try:
                 valid_stops = [l for l in all_stops_to_visit if l in COORDENADAS_LOTES]
                 
-                # LLAMADA A LA FUNCIÓN EN ROUTING_LOGIC3
+                # LLAMADA A LA FUNCIÓN EN ROUTING_LOGIC3 (Aquí se calcula y se genera el GeoJSON Link)
                 results = solve_route_optimization(valid_stops)
 
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
-                    # SECUENCIA DE COORDENADAS DE LAS PARADAS (PARA MARCADORES)
-                    points_sequence_a = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_a']['orden_optimo']] + [COORDENADAS_ORIGEN]
-                    points_sequence_b = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_b']['orden_optimo']] + [COORDENADAS_ORIGEN]
-                    
-                    # RUTA COMPLETA (POLYLINE): Se obtiene directamente de los resultados de Routing_logic3
-                    # (Esto asume que Routing_logic3.solve_route_optimization YA usa la polyline)
-                    
-                    # 1. Generar Objeto GeoJSON (CON TRAZA)
-                    # NOTA: Los resultados del GeoJSON deben estar en el diccionario 'results' generado
-                    # por Routing_logic3 para que la traza funcione. 
-                    # Usaremos las URLS de GeoJSON que deberían estar completas en los resultados de Routing_logic3.
-                    
-                    # Aquí usamos las secuencias de puntos para los marcadores, pero confiamos en que
-                    # las URLS de GeoJSON ya vienen completas desde el módulo de ruteo.
-                    
-                    # Si GeoJSON no se generó completamente en Routing_logic3, 
-                    # debemos regenerarlo aquí usando la lógica de GeoJSON.
-                    
-                    # NOTA: Reconstruiremos el GeoJSON aquí, usando la data de polyline
-                    # que se extrajo correctamente en Routing_logic3.py (paths[0]['points']['coordinates']).
-                    
-                    # USAMOS LA LOGICA INCLUIDA EN ROUTING_LOGIC3
-                    # Para simplificar y mantener el flujo, confiamos en que los links generados
-                    # por generate_geojson_io_link(generate_geojson(...)) son correctos.
-                    
-                    # Recuperamos la URL completa que incluye el GeoJSON ya generado por Routing_logic3:
-                    geojson_link_a = results['ruta_a']['geojson_link']
-                    geojson_link_b = results['ruta_b']['geojson_link']
-                    
-                    # 2. Generar Enlaces Google Maps (se hacen aquí)
+                    # 3. Generar Enlaces Google Maps (Se mantiene)
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
 
@@ -507,6 +379,7 @@ if page == "Calcular Nueva Ruta":
                     type="primary", 
                     use_container_width=True
                 )
+                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
                 st.link_button("🌐 Ver GeoJSON de Ruta A (Traza)", res_a.get('geojson_link', '#'), use_container_width=True)
                 
         with col_b:
@@ -524,6 +397,7 @@ if page == "Calcular Nueva Ruta":
                     type="primary", 
                     use_container_width=True
                 )
+                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
                 st.link_button("🌐 Ver GeoJSON de Ruta B (Traza)", res_b.get('geojson_link', '#'), use_container_width=True)
 
     else:
