@@ -73,25 +73,81 @@ def get_initial_group_colors(valid_lotes):
     Devuelve un diccionario {lote_name: color_hex}.
     """
     if len(valid_lotes) < 2:
-        return {l: '#000000' for l in valid_lotes}
+        return {l: '#import streamlit as st
+import pandas as pd
+from datetime import datetime
+import pytz
+import os
+import time
+import json
+import gspread
+from urllib.parse import quote
+import numpy as np
+from sklearn.cluster import KMeans # Necesario para compatibilidad de instalación, aunque la lógica es simple
 
-    lotes_points = np.array([COORDENADAS_LOTES[l] for l in valid_lotes])
-    
-    try:
-        # Usamos K-Means (2 clusters) en las coordenadas [lon, lat]
-        kmeans = KMeans(n_clusters=2, random_state=42, n_init='auto', max_iter=100)
-        labels = kmeans.fit_predict(lotes_points)
-    except Exception:
-        # Fallback si falla el clustering
-        labels = [i % 2 for i in range(len(valid_lotes))]
+# Importa la lógica y constantes del módulo vecino.
+from Routing_logic3 import (
+    COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, 
+    generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO 
+)
 
-    # Asignación de colores: Cluster 0 = Azul (Camión A), Cluster 1 = Rojo (Camión B)
-    color_map = {0: '#0044FF', 1: '#FF4B4B'}
+# =============================================================================
+# CONFIGURACIÓN INICIAL, ZONA HORARIA Y PERSISTENCIA DE DATOS (GOOGLE SHEETS)
+# =============================================================================
+
+st.set_page_config(page_title="Optimizador Bimodal de Rutas", layout="wide")
+
+# --- ZONA HORARIA ARGENTINA (GMT-3) ---
+ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
+
+# Ocultar menú de Streamlit y footer
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """, unsafe_allow_html=True)
+
+# Encabezados en el orden de Google Sheets
+COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
+
+
+# =============================================================================
+# FUNCIONES AUXILIARES (NAVEGACIÓN, GEOJSON Y CLUSTERING SIMPLIFICADO)
+# =============================================================================
+
+def generate_gmaps_link(stops_order):
+    """
+    Genera un enlace de Google Maps para una ruta con múltiples paradas.
+    La ruta comienza en el origen (Ingenio) y regresa a él.
+    """
+    if not stops_order:
+        return '#'
+
+    # COORDENADAS_ORIGEN es (lon, lat). GMaps requiere lat,lon.
+    lon_orig, lat_orig = COORDENADAS_ORIGEN
     
-    color_assignment = {}
-    for i, lote in enumerate(valid_lotes):
-        color_assignment[lote] = color_map[labels[i]]
-        
+    route_parts = [f"{lat_orig},{lon_orig}"] # Origen
+    
+    # Añadir paradas intermedias
+    for stop_lote in stops_order:
+        if stop_lote in COORDENADAS_LOTES:
+            lon, lat = COORDENADAS_LOTES[stop_lote]
+            route_parts.append(f"{lat},{lon}") # lat,lon
+
+    # Añadir destino final (regreso al origen)
+    route_parts.append(f"{lat_orig},{lon_orig}")
+
+    # Une las partes con '/' para la URL de Google Maps directions
+    return f"https://www.google.com/maps/dir/{lat_orig},{lon_orig}/" + "/".join(route_parts[1:])
+
+
+def get_initial_group_colors(valid_lotes):
+    """
+    Devuelve un color por defecto ('#0044FF' - azul) para todos los lotes a visitar.
+    """
+    default_lote_color = '#0044FF'
+    color_assignment = {lote: default_lote_color for lote in valid_lotes}
     return color_assignment
 
 
@@ -293,27 +349,27 @@ if page == "Calcular Nueva Ruta":
     
     valid_stops = [l for l in all_stops_to_visit if l in COORDENADAS_LOTES]
 
-    # --- 1. Calcular colores iniciales (K-Means) ---
+    # --- 1. Obtener color para los lotes (color por defecto) ---
     lote_colors = get_initial_group_colors(valid_stops)
     
-    # 2. Añadir Origen
+    # 2. Añadir Origen (Ingenio) con color y tamaño fijo (VERDE DISTINTIVO)
     map_data_list.append({'name': 'INGENIO (Origen)', 
                           'lat': COORDENADAS_ORIGEN[1], 
                           'lon': COORDENADAS_ORIGEN[0], 
-                          'color': '#008000', # Verde para el origen
+                          'color': '#008000', # VERDE (color distintivo)
                           'size': 20}) # Origen más grande
 
     valid_stops_count = 0
     invalid_stops = [l for l in all_stops_to_visit if l not in COORDENADAS_LOTES]
 
-    # 3. Añadir destinos con color asignado
+    # 3. Añadir destinos con el color por defecto (AZUL)
     for lote in all_stops_to_visit:
         if lote in COORDENADAS_LOTES:
             lon, lat = COORDENADAS_LOTES[lote]
             map_data_list.append({'name': lote, 
                                   'lat': lat, 
                                   'lon': lon, 
-                                  'color': lote_colors[lote], # Color de K-Means
+                                  'color': lote_colors[lote], # Color por defecto para lotes (Azul)
                                   'size': 10})
             valid_stops_count += 1
 
@@ -321,14 +377,14 @@ if page == "Calcular Nueva Ruta":
 
     with col_map:
         if valid_stops_count > 0:
-            st.subheader(f"Mapa de {valid_stops_count} Destinos (Pre-Agrupación)")
-            st.caption("Los colores representan la división inicial por proximidad (K-Means).")
+            st.subheader(f"Mapa de {valid_stops_count} Destinos")
+            st.caption("Los puntos azules son lotes, el punto verde es el Ingenio (origen).")
             
             st.map(map_data, 
                    latitude='lat', 
                    longitude='lon', 
-                   color='color', # <-- Columna de color
-                   size='size',   # <-- Columna de tamaño
+                   color='color', 
+                   size='size',   
                    zoom=10)
         else:
             st.info("Ingrese lotes válidos para ver la previsualización del mapa.")
@@ -423,12 +479,12 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN A (GMaps)", 
+                    "🚀 INICIAR RUTA CAMIÓN A", 
                     res_a.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
-                st.link_button("🌐 Ver GeoJSON de Ruta A (Traza)", res_a.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'), use_container_width=True)
                 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
@@ -440,12 +496,12 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN B (GMaps)", 
+                    "🚀 INICIAR RUTA CAMIÓN B", 
                     res_b.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
-                st.link_button("🌐 Ver GeoJSON de Ruta B (Traza)", res_b.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'), use_container_width=True)
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
