@@ -374,13 +374,13 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN A (GMaps)", 
+                    "🚀 INICIAR RUTA CAMIÓN A", 
                     res_a.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
                 # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
-                st.link_button("🌐 Ver GeoJSON de Ruta A (Traza)", res_a.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'), use_container_width=True)
                 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
@@ -392,13 +392,13 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN B (GMaps)", 
+                    "🚀 INICIAR RUTA CAMIÓN B", 
                     res_b.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
                 # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
-                st.link_button("🌐 Ver GeoJSON de Ruta B (Traza)", res_b.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'), use_container_width=True)
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
@@ -515,3 +515,4 @@ elif page == "Estadísticas":
             )
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
