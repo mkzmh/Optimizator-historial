@@ -58,7 +58,6 @@ def generate_gmaps_link(stops_order):
     route_parts.append(f"{lat_orig},{lon_orig}")
 
     # Une las partes con '/' para la URL de Google Maps directions
-    # NOTA: La estructura de URL para directions es compleja, esta es una aproximación.
     return f"https://www.google.com/maps/dir/{lat_orig},{lon_orig}/" + "/".join(route_parts[1:])
 
 
@@ -148,6 +147,7 @@ def generate_geojson_string(geojson_object):
         return None
         
     try:
+        # Importante: No se reduce la información, solo se formatea para legibilidad.
         return json.dumps(geojson_object, indent=2)
     except Exception:
         return 'Error de formato en el GeoJSON generado.'
@@ -160,7 +160,8 @@ def generate_geojson_io_link(geojson_object):
         return "https://geojson.io/"
         
     try:
-        # Compacta el JSON antes de la codificación para reducir la longitud de la URL
+        # Compacta el JSON al máximo para el enlace (separators=(',', ':'))
+        # Esto reduce la longitud de la URL sin eliminar datos críticos.
         geojson_string = json.dumps(geojson_object, separators=(',', ':'))
         # Usamos quote para codificar el GeoJSON de forma segura en la URL
         encoded_geojson = quote(geojson_string) 
@@ -364,7 +365,6 @@ if page == "Calcular Nueva Ruta":
     num_lotes = len(all_stops_to_visit)
 
     map_data_list = []
-    # COORDENADAS_ORIGEN es (lon, lat). Para st.map necesitamos lat, lon
     map_data_list.append({'name': 'INGENIO (Origen)', 'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0]})
 
     valid_stops_count = 0
@@ -381,7 +381,6 @@ if page == "Calcular Nueva Ruta":
     with col_map:
         if valid_stops_count > 0:
             st.subheader(f"Mapa de {valid_stops_count} Destinos")
-            # st.map solo muestra puntos, no la traza.
             st.map(map_data, 
                    latitude='lat', 
                    longitude='lon', 
@@ -432,12 +431,11 @@ if page == "Calcular Nueva Ruta":
                     path_coordinates_a = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_a']['orden_optimo']] + [COORDENADAS_ORIGEN]
                     path_coordinates_b = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[l] for l in results['ruta_b']['orden_optimo']] + [COORDENADAS_ORIGEN]
                     
-                    # 1. Generar Objeto GeoJSON (AHORA CON TRAZA)
-                    # path_coordinates_x se usa dos veces: para los puntos (points_sequence) y para la línea (path_coordinates)
+                    # 1. Generar Objeto GeoJSON (CON TRAZA)
                     geojson_a = generate_geojson("Camión A", path_coordinates_a, path_coordinates_a, results['ruta_a']['distancia_km'])
                     geojson_b = generate_geojson("Camión B", path_coordinates_b, path_coordinates_b, results['ruta_b']['distancia_km'])
 
-                    # 2. Generar Enlaces GeoJSON.io (CODIFICADO)
+                    # 2. Generar Enlaces GeoJSON.io
                     results['ruta_a']['geojson_link'] = generate_geojson_io_link(geojson_a)
                     results['ruta_b']['geojson_link'] = generate_geojson_io_link(geojson_b)
                     
