@@ -7,13 +7,16 @@ import time
 import json
 import gspread
 from urllib.parse import quote
+import numpy as np
+from sklearn.cluster import KMeans
+import folium
+from streamlit_folium import folium_static # Nuevo para mostrar el mapa interactivo
 
 # Importa la lógica y constantes del módulo vecino.
-# NOTA: Asumimos que las funciones de GeoJSON (generate_geojson_io_link, generate_geojson)
-# YA están definidas en Routing_logic3.py y se importan correctamente.
 from Routing_logic3 import (
     COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN, 
-    generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO # Aseguramos las importaciones necesarias
+    COORDENADAS_LOTES_REVERSO, generate_geojson_io_link, generate_geojson,
+    combine_geojasons 
 )
 
 # =============================================================================
@@ -37,7 +40,9 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB"]
 
 
-# --- Funciones Auxiliares para Navegación ---
+# =============================================================================
+# FUNCIONES AUXILIARES (NAVEGACIÓN, GEOJSON Y CLUSTERING SIMPLIFICADO)
+# =============================================================================
 
 def generate_gmaps_link(stops_order):
     """
@@ -63,6 +68,15 @@ def generate_gmaps_link(stops_order):
 
     # Une las partes con '/' para la URL de Google Maps directions
     return f"https://www.google.com/maps/dir/{lat_orig},{lon_orig}/" + "/".join(route_parts[1:])
+
+
+def get_initial_group_colors(valid_lotes):
+    """
+    Devuelve un color por defecto ('#0044FF' - azul) para todos los lotes a visitar.
+    """
+    default_lote_color = '#0044FF'
+    color_assignment = {lote: default_lote_color for lote in valid_lotes}
+    return color_assignment
 
 
 # --- Funciones de Conexión y Persistencia (Google Sheets) ---
@@ -258,16 +272,33 @@ if page == "Calcular Nueva Ruta":
     all_stops_to_visit = [l.strip().upper() for l in lotes_input.split(',') if l.strip()]
     num_lotes = len(all_stops_to_visit)
 
+    # Lógica de pre-visualización y mapa...
     map_data_list = []
-    map_data_list.append({'name': 'INGENIO (Origen)', 'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0]})
+    
+    valid_stops = [l for l in all_stops_to_visit if l in COORDENADAS_LOTES]
+
+    # --- 1. Obtener color para los lotes (color por defecto) ---
+    lote_colors = get_initial_group_colors(valid_stops)
+    
+    # 2. Añadir Origen (Ingenio) con color y tamaño fijo (VERDE DISTINTIVO)
+    map_data_list.append({'name': 'INGENIO (Origen)', 
+                          'lat': COORDENADAS_ORIGEN[1], 
+                          'lon': COORDENADAS_ORIGEN[0], 
+                          'color': '#008000', # VERDE (color distintivo)
+                          'size': 20}) # Origen más grande
 
     valid_stops_count = 0
     invalid_stops = [l for l in all_stops_to_visit if l not in COORDENADAS_LOTES]
 
+    # 3. Añadir destinos con el color por defecto (AZUL)
     for lote in all_stops_to_visit:
         if lote in COORDENADAS_LOTES:
             lon, lat = COORDENADAS_LOTES[lote]
-            map_data_list.append({'name': lote, 'lat': lat, 'lon': lon})
+            map_data_list.append({'name': lote, 
+                                  'lat': lat, 
+                                  'lon': lon, 
+                                  'color': lote_colors[lote], # Color por defecto para lotes (Azul)
+                                  'size': 10})
             valid_stops_count += 1
 
     map_data = pd.DataFrame(map_data_list)
@@ -275,11 +306,13 @@ if page == "Calcular Nueva Ruta":
     with col_map:
         if valid_stops_count > 0:
             st.subheader(f"Mapa de {valid_stops_count} Destinos")
+            st.caption("Los puntos azules son lotes, el punto verde es el Ingenio (origen).")
+            
             st.map(map_data, 
                    latitude='lat', 
                    longitude='lon', 
-                   color='#0044FF', 
-                   size=10, 
+                   color='color', 
+                   size='size',   
                    zoom=10)
         else:
             st.info("Ingrese lotes válidos para ver la previsualización del mapa.")
@@ -322,7 +355,19 @@ if page == "Calcular Nueva Ruta":
                 if "error" in results:
                     st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
-                    # 3. Generar Enlaces Google Maps (Se mantiene)
+                    res_a = results.get('ruta_a', {})
+                    res_b = results.get('ruta_b', {})
+                    
+                    # 1. Combinar ambos GeoJSON crudos
+                    geojson_a_raw = res_a.get('geojson_raw')
+                    geojson_b_raw = res_b.get('geojson_raw')
+                    
+                    combined_geojson = combine_geojasons(geojson_a_raw, geojson_b_raw)
+                    
+                    # 2. Generar el nuevo enlace de comparación y almacenarlo
+                    results['geojson_combined_link'] = generate_geojson_io_link(combined_geojson)
+
+                    # 3. Generar Enlaces Google Maps 
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
 
@@ -353,15 +398,57 @@ if page == "Calcular Nueva Ruta":
 
     if st.session_state.results:
         results = st.session_state.results
+        res_a = results.get('ruta_a', {})
+        res_b = results.get('ruta_b', {})
+        
+        # --- PREPARACIÓN DEL MAPA FOLIUM COMBINADO ---
+        
+        # 1. Combinar GeoJSON para Folium (usa los datos ya combinados)
+        geojson_a_raw = res_a.get('geojson_raw')
+        geojson_b_raw = res_b.get('geojson_raw')
+        combined_geojson = combine_geojasons(geojson_a_raw, geojson_b_raw)
+
+        # 2. Calcular centro (ej. Ingenio)
+        center_lat = COORDENADAS_ORIGEN[1]
+        center_lon = COORDENADAS_ORIGEN[0]
+
+        # 3. Crear Mapa de Folium
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles="cartodbdarkmatter")
+        
+        # 4. Añadir el GeoJSON combinado al mapa (Trazas y Puntos)
+        if combined_geojson and combined_geojson.get('features'):
+            try:
+                folium.GeoJson(
+                    combined_geojson,
+                    name="Rutas Optimizadas (A & B)"
+                ).add_to(m)
+            except Exception:
+                st.warning("⚠️ Error al renderizar la geometría GeoJSON en el mapa interactivo.")
+
 
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']:.2f} km")
-        st.divider()
+        
+        # --- MAPA INTERACTIVO CON TRAZAS REALES ---
+        st.subheader("🗺️ Visualización Detallada de Rutas")
+        folium_static(m, width=900, height=500)
+        
+        # --- ENLACES DE COMPARACIÓN ---
+        st.header("🔗 Enlaces de Navegación y Comparación")
+        if results.get('geojson_combined_link'):
+            st.link_button(
+                "✨ Abrir AMBAS Rutas en GeoJSON.io (Traza)", 
+                results['geojson_combined_link'],
+                type="secondary", 
+                use_container_width=True
+            )
+        else:
+            st.warning("No se pudo generar el enlace de comparación.")
 
-        res_a = results.get('ruta_a', {})
-        res_b = results.get('ruta_b', {})
-
+        st.divider() 
+        
+        # Resto de los reportes individuales (col_a, col_b)
         col_a, col_b = st.columns(2)
         
         with col_a:
@@ -374,13 +461,12 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN A", 
+                    "🚀 INICIAR RUTA CAMIÓN A (GMaps)", 
                     res_a.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
-                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
-                st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta A (Traza)", res_a.get('geojson_link', '#'), use_container_width=True)
                 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
@@ -392,13 +478,12 @@ if page == "Calcular Nueva Ruta":
                 
                 st.markdown("---")
                 st.link_button(
-                    "🚀 INICIAR RUTA CAMIÓN B", 
+                    "🚀 INICIAR RUTA CAMIÓN B (GMaps)", 
                     res_b.get('gmaps_link', '#'),
                     type="primary", 
                     use_container_width=True
                 )
-                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
-                st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'), use_container_width=True)
+                st.link_button("🌐 Ver GeoJSON de Ruta B (Traza)", res_b.get('geojson_link', '#'), use_container_width=True)
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
