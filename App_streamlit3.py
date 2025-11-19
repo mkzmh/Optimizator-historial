@@ -8,7 +8,7 @@ import json
 import gspread
 from urllib.parse import quote
 
-# IMPORTACIONES AÑADIDAS PARA MONITOREO EN VIVO
+# NUEVAS IMPORTACIONES PARA EL MAPA Y SIMULACIÓN
 import folium
 from streamlit_folium import st_folium
 
@@ -74,13 +74,12 @@ def generate_gmaps_link(stops_order):
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """Establece la conexión con Google Sheets usando variables de secrets separadas."""
-    print("DEBUG: Intentando inicializar el cliente GSpread...") # <-- PUNTO DE CONTROL A
+    print("DEBUG: Intentando inicializar el cliente GSpread...")
     try:
         credentials_dict = {
             "type": "service_account",
             "project_id": st.secrets["gsheets_project_id"],
             "private_key_id": st.secrets["gsheets_private_key_id"],
-            # CRÍTICO: Aseguramos que los saltos de línea se manejen correctamente.
             "private_key": st.secrets["gsheets_private_key"].replace('\\n', '\n'), 
             "client_email": st.secrets["gsheets_client_email"],
             "client_id": st.secrets["gsheets_client_id"],
@@ -92,15 +91,14 @@ def get_gspread_client():
         }
 
         gc = gspread.service_account_from_dict(credentials_dict)
-        print("DEBUG: Cliente GSpread INICIALIZADO con éxito.") # <-- PUNTO DE CONTROL A
+        print("DEBUG: Cliente GSpread INICIALIZADO con éxito.")
         return gc
     except KeyError as e:
-        # Se modificó para imprimir en terminal y mostrar en web (si es posible)
         print(f"ERROR FATAL (Credenciales): ⚠️ Falta la clave '{e}' en Streamlit Secrets.") 
         st.error(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
         return None
     except Exception as e:
-        print(f"ERROR FATAL (Conexión): ❌ {e}") # <-- PUNTO DE CONTROL A
+        print(f"ERROR FATAL (Conexión): ❌ {e}")
         st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
         return None
 
@@ -136,7 +134,7 @@ def save_new_route_to_sheet(new_route_data):
     """Escribe una nueva ruta a Google Sheets."""
     client = get_gspread_client()
     if not client:
-        print("ADVERTENCIA (Guardado): Fallo el guardado porque el cliente GSheets NO está disponible.") # <-- PUNTO DE CONTROL B
+        print("ADVERTENCIA (Guardado): Fallo el guardado porque el cliente GSheets NO está disponible.")
         st.warning("No se pudo guardar la ruta por fallo de conexión a Google Sheets.")
         return
 
@@ -145,17 +143,17 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
 
         values_to_save = [new_route_data[col] for col in COLUMNS]
-        print(f"DEBUG (Guardado): Valores a guardar: {values_to_save}") # <-- PUNTO DE CONTROL B
+        print(f"DEBUG (Guardado): Valores a guardar: {values_to_save}")
 
         worksheet.append_row(values_to_save)
-        print("DEBUG (Guardado): Fila AÑADIDA con éxito a Google Sheets.") # <-- PUNTO DE CONTROL B
+        print("DEBUG (Guardado): Fila AÑADIDA con éxito a Google Sheets.")
 
         st.cache_data.clear()
 
     except Exception as e:
-        print(f"ERROR CRÍTICO (Guardado): ❌ Fallo al escribir en la hoja de cálculo. Detalles: {e}") # <-- PUNTO DE CONTROL B
+        print(f"ERROR CRÍTICO (Guardado): ❌ Fallo al escribir en la hoja de cálculo. Detalles: {e}")
         st.error(f"❌ ERROR DE ESCRITURA: Verifique Permisos y Encabezados. Detalles en logs.")
-        st.error(f"Detalles del fallo: {e}") # Añadido detalle para la interfaz web
+        st.error(f"Detalles del fallo: {e}")
 
 
 # --- Funciones de Estadística ---
@@ -346,7 +344,7 @@ if page == "Calcular Nueva Ruta":
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
                     
-                    # Reiniciar índice GPS para la nueva ruta
+                    # Reiniciar índice GPS para la nueva ruta de monitoreo
                     st.session_state.gps_index = 0
 
                     # CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
@@ -567,7 +565,7 @@ elif page == "Monitoreo en Vivo":
             # Asumimos que la clave 'geojson_data' se devuelve desde Routing_logic3
             geojson_data_str = ruta_a.get('geojson_data')
             if not geojson_data_str:
-                st.error("❌ La clave 'geojson_data' no está disponible en los resultados de la ruta A.")
+                st.error("❌ La clave 'geojson_data' no está disponible en los resultados de la ruta A. Revise Routing_logic3.py.")
                 return
 
             try:
@@ -633,11 +631,8 @@ elif page == "Monitoreo en Vivo":
             
             # --- 4. Renderizar el Mapa en Streamlit y Forzar Actualización ---
             
-            # Renderizar el mapa interactivo
+            # Renderizar el mapa interactivo (SIN el tag de imagen que causó el SyntaxError)
             st_folium(m, width=900, height=500, key="folium_monitor") 
-
-[Image of GPS monitoring dashboard showing real-time vehicle location on a map]
-
 
             # Informar el punto actual
             st.metric("Punto Simulado Actual", f"Coordenadas: ({current_lat:.4f}, {current_lon:.4f}) - Índice {st.session_state.gps_index}")
