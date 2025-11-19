@@ -29,7 +29,7 @@ st.set_page_config(
 
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
-# --- CSS REFORZADO (SOLUCIÓN DEFINITIVA AL BOTÓN ROJO) ---
+# CSS PROFESIONAL
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -44,41 +44,31 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* =========================================
-       FORZAR AZUL EN BOTONES PRIMARIOS
-       ========================================= */
-    
-    /* Estado Normal */
+    /* --- BOTONES PRIMARIOS (AZUL) --- */
     div.stButton > button[kind="primary"], a[kind="primary"] {
         background-color: #003366 !important;
         border: 1px solid #003366 !important;
         color: #ffffff !important;
         font-weight: 600 !important;
         border-radius: 6px !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        width: 100% !important;
     }
-
-    /* Estado Hover (Pasar mouse) */
     div.stButton > button[kind="primary"]:hover, a[kind="primary"]:hover {
         background-color: #002244 !important;
         border-color: #002244 !important;
         color: #ffffff !important;
     }
 
-    /* Estado Focus/Active (Clic) */
-    div.stButton > button[kind="primary"]:focus, div.stButton > button[kind="primary"]:active {
-        background-color: #003366 !important;
-        border-color: #003366 !important;
-        color: #ffffff !important;
-        box-shadow: none !important;
-    }
-    
-    /* =========================================
-       BOTONES SECUNDARIOS (GRIS/NEUTRO)
-       ========================================= */
+    /* --- BOTONES SECUNDARIOS (GRIS/NEUTRO) --- */
     div.stButton > button[kind="secondary"], a[kind="secondary"] {
         background-color: #ffffff !important;
         color: #003366 !important;
         border: 1px solid #dce1e6 !important;
+        width: 100% !important;
+        text-align: center !important;
+        text-decoration: none !important;
     }
     div.stButton > button[kind="secondary"]:hover, a[kind="secondary"]:hover {
         border-color: #003366 !important;
@@ -162,6 +152,7 @@ def get_history_data():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
 
+# --- LÓGICA DE ESTADÍSTICAS ---
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
     
@@ -179,18 +170,19 @@ def calculate_statistics(df):
             return len([i for i in s.split(',') if i.strip()])
         except: return 0
 
-    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_lotes_input)
     if 'Lotes_CamionA' not in df.columns: df['Lotes_CamionA'] = ""
     if 'Lotes_CamionB' not in df.columns: df['Lotes_CamionB'] = ""
     
     df['Total_Lotes_Asignados'] = df['Lotes_CamionA'].apply(safe_count_assigned) + df['Lotes_CamionB'].apply(safe_count_assigned)
     
-    for col in ['Km_CamionA', 'Km_CamionB', 'Km Totales']:
+    for col in ['Km_CamionA', 'Km_CamionB']:
         if col not in df.columns: df[col] = 0.0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    df['Km_Total'] = df['Km Totales']
+    # Calculamos el total internamente para evitar KeyError
+    df['Km_Total'] = df['Km_CamionA'] + df['Km_CamionB']
 
+    # Agregación Diaria
     daily = df.groupby('Fecha').agg({
         'Fecha': 'count', 
         'Total_Lotes_Asignados': 'sum', 
@@ -208,6 +200,7 @@ def calculate_statistics(df):
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
     daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
 
+    # Agregación Mensual
     monthly = df.groupby('Mes').agg({
         'Fecha': 'count', 
         'Total_Lotes_Asignados': 'sum', 
@@ -243,7 +236,7 @@ if 'results' not in st.session_state:
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/mkzmh/Optimizator-historial/main/LOGO%20CN%20GRUPO%20COLOR%20(1).png", use_container_width=True)
     st.markdown("### Panel de Control")
-    page = st.radio("Módulos", ["Planificación Operativa", "Registro Histórico", "Estadísticas"])
+    page = st.radio("Módulos", ["Planificación Operativa", "Historial", "Estadísticas"])
     st.markdown("---")
     st.caption(f"Registros Totales: **{len(st.session_state.historial_rutas)}**")
 
@@ -252,8 +245,8 @@ with st.sidebar:
 # =============================================================================
 
 if page == "Planificación Operativa":
-    st.title("Sistema de Optimización de Rutas")
-    st.markdown("##### Planificación y división óptima de lotes para vehículos de entrega.")
+    st.title("Sistema de Optimización Logística")
+    st.markdown("##### Planificación y división óptima de lotes para vehículos de entrega")
     
     st.markdown("---")
     
@@ -272,7 +265,7 @@ if page == "Planificación Operativa":
         c2.success("Todos los lotes son válidos.")
 
     if valid_stops:
-        with st.expander("🗺️ Ver Mapa de Lotes", expanded=False):
+        with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
             for l in valid_stops:
                 coords = COORDENADAS_LOTES[l]
@@ -283,7 +276,6 @@ if page == "Planificación Operativa":
     
     col_btn, _ = st.columns([1, 3])
     with col_btn:
-        # Botón primario (Forzado a Azul en CSS)
         calculate = st.button("Ejecutar Algoritmo", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
 
     if calculate:
@@ -324,11 +316,14 @@ if page == "Planificación Operativa":
             st.markdown("### Resultados de la Planificación")
             col_a, col_b = st.columns(2)
 
+            # UNIDAD A
             with col_a:
                 ra = res.get('ruta_a', {})
                 with st.container(border=True):
-                    st.markdown(f"#### 🚛 {ra.get('nombre', 'Unidad A')}")
-                    st.caption(f"Patente: {ra.get('patente', 'N/A')}")
+                    # TÍTULO CON PATENTE (MODIFICADO)
+                    patente = ra.get('patente', 'N/A')
+                    st.markdown(f"#### 🚛 Camión 1: {patente}")
+                    
                     if ra.get('mensaje'):
                         st.info("Sin asignación de lotes.")
                     else:
@@ -343,15 +338,18 @@ if page == "Planificación Operativa":
                         link_geo = ra.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         
-                        # BOTONES UNO SOBRE OTRO
+                        # BOTONES (AZUL Y GRIS - UNO SOBRE OTRO)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
+            # UNIDAD B
             with col_b:
                 rb = res.get('ruta_b', {})
                 with st.container(border=True):
-                    st.markdown(f"#### 🚛 {rb.get('nombre', 'Unidad B')}")
-                    st.caption(f"Patente: {rb.get('patente', 'N/A')}")
+                    # TÍTULO CON PATENTE (MODIFICADO)
+                    patente = rb.get('patente', 'N/A')
+                    st.markdown(f"#### 🚛 Camión 2: {patente}")
+                    
                     if rb.get('mensaje'):
                         st.info("Sin asignación de lotes.")
                     else:
@@ -366,15 +364,15 @@ if page == "Planificación Operativa":
                         link_geo = rb.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         
-                        # BOTONES UNO SOBRE OTRO
+                        # BOTONES (AZUL Y GRIS - UNO SOBRE OTRO)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
 # =============================================================================
 # PÁGINA 2: HISTORIAL
 # =============================================================================
-elif page == "Registro Histórico":
-    st.title("Registro Histórico de Operaciones")
+elif page == "Historial":
+    st.title("Historial de Operaciones")
     df = pd.DataFrame(st.session_state.historial_rutas)
     if not df.empty:
         st.dataframe(
@@ -402,14 +400,12 @@ elif page == "Estadísticas":
         
         st.subheader("Desempeño Diario")
         if not day.empty:
-            # Tabla Detallada
             cols_show = {
                 'Fecha_str': 'Fecha', 'Rutas_Total': 'Rutas', 'Lotes_Asignados_Total': 'Lotes Entregados',
                 'Km_CamionA_Total': 'Km Unidad A', 'Km_CamionB_Total': 'Km Unidad B', 'Km_Total': 'Km Totales'
             }
             st.dataframe(day[list(cols_show.keys())].rename(columns=cols_show), use_container_width=True, hide_index=True)
             
-            # Gráfico en azules
             st.markdown("##### Kilómetros Totales Recorridos por Día")
             st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
         
@@ -425,4 +421,5 @@ elif page == "Estadísticas":
             )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
+
 
