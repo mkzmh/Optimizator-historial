@@ -367,12 +367,16 @@ if page == "Calcular Nueva Ruta":
     if st.session_state.results:
         results = st.session_state.results
 
+        # Obtener el valor de demanda de forma segura (usando .get)
+        carga_a = results.get('ruta_a', {}).get('demanda_total', 'N/A')
+        carga_b = results.get('ruta_b', {}).get('demanda_total', 'N/A')
+
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']:.2f} km")
         
-        # MOSTRAR LA CAPACIDAD USADA
-        st.metric("Carga Total (A/B)", f"{results['ruta_a']['demanda_total']}/{results['ruta_b']['demanda_total']} unidades", f"Máximo permitido: {max_capacity} unidades")
+        # MOSTRAR LA CARGA TOTAL
+        st.metric("Carga Total (A/B)", f"{carga_a}/{carga_b} unidades", f"Máximo permitido: {max_capacity} unidades")
         
         st.divider()
 
@@ -384,7 +388,7 @@ if page == "Calcular Nueva Ruta":
         with col_a:
             st.subheader(f"🚛 Camión 1: {res_a.get('patente', 'N/A')}")
             with st.container(border=True):
-                st.markdown(f"**Carga Total:** **{res_a.get('demanda_total', 'N/A')} unidades**")
+                st.markdown(f"**Carga Total:** **{carga_a} unidades**")
                 st.markdown(f"**Total Lotes:** {len(res_a.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_a.get('distancia_km', 'N/A'):.2f} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
@@ -402,7 +406,7 @@ if page == "Calcular Nueva Ruta":
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
-                st.markdown(f"**Carga Total:** **{res_b.get('demanda_total', 'N/A')} unidades**")
+                st.markdown(f"**Carga Total:** **{carga_b} unidades**")
                 st.markdown(f"**Total Lotes:** {len(res_b.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A'):.2f} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []) )}`")
