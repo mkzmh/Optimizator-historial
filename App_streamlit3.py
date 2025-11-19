@@ -29,7 +29,7 @@ st.set_page_config(
 
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
-# CSS PROFESIONAL
+# CSS PROFESIONAL - FORZANDO AZUL Y GRIS (ADIÓS ROJO)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -44,20 +44,40 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Botones Primarios (Azul Corporativo) */
-    div.stButton > button:first-child {
-        background-color: #003366;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 0.6rem 1.2rem;
-        font-weight: 600;
-        font-size: 14px;
+    /* --- BOTONES PRIMARIOS (AZUL) --- */
+    /* Aplica tanto a botones normales como a links tipo botón */
+    div.stButton > button[kind="primary"], a[kind="primary"] {
+        background-color: #003366 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 0.6rem 1.2rem !important;
+        font-weight: 600 !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #002244;
+    div.stButton > button[kind="primary"]:hover, a[kind="primary"]:hover {
+        background-color: #002244 !important;
+        color: #ffffff !important;
     }
     
+    /* --- BOTONES SECUNDARIOS (GRIS/NEUTRO) --- */
+    div.stButton > button[kind="secondary"], a[kind="secondary"] {
+        background-color: #f0f2f6 !important;
+        color: #31333F !important;
+        border: 1px solid #d6d6d8 !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+        text-align: center !important;
+        text-decoration: none !important;
+    }
+    div.stButton > button[kind="secondary"]:hover, a[kind="secondary"]:hover {
+        background-color: #e0e2e6 !important;
+        color: #31333F !important;
+        border-color: #31333F !important;
+    }
+
     /* Sidebar */
     [data-testid="stSidebar"] {
         background-color: #f8f9fa;
@@ -136,67 +156,24 @@ def get_history_data():
 
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
-    
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
     df['Mes'] = df['Fecha'].dt.to_period('M')
-
-    def count_lotes_input(x):
-        try: return len(str(x).split(',')) if x else 0
-        except: return 0
-
-    def safe_count_assigned(x):
+    def safe_count(x):
         try:
             s = str(x).replace('[','').replace(']','').replace("'", "")
             return len([i for i in s.split(',') if i.strip()])
         except: return 0
-
-    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_lotes_input)
-    if 'Lotes_CamionA' not in df.columns: df['Lotes_CamionA'] = ""
-    if 'Lotes_CamionB' not in df.columns: df['Lotes_CamionB'] = ""
-    
-    df['Total_Lotes_Asignados'] = df['Lotes_CamionA'].apply(safe_count_assigned) + df['Lotes_CamionB'].apply(safe_count_assigned)
-    
+    df['Total_Asignados'] = df['Lotes_CamionA'].apply(safe_count) + df['Lotes_CamionB'].apply(safe_count)
     for col in ['Km_CamionA', 'Km_CamionB', 'Km Totales']:
-        if col not in df.columns: df[col] = 0.0
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
     df['Km_Total'] = df['Km Totales']
 
-    daily = df.groupby('Fecha').agg({
-        'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
-        'Km_CamionA': 'sum',
-        'Km_CamionB': 'sum',
-        'Km Totales': 'sum'
-    }).rename(columns={
-        'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
-        'Km_CamionA': 'Km_CamionA_Total',
-        'Km_CamionB': 'Km_CamionB_Total',
-        'Km Totales': 'Km_Total'
-    }).reset_index()
-    
+    daily = df.groupby('Fecha').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km Totales':'sum'}).rename(columns={'Fecha':'Operaciones'}).reset_index()
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
-    daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
-
-    monthly = df.groupby('Mes').agg({
-        'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
-        'Km_CamionA': 'sum',
-        'Km_CamionB': 'sum',
-        'Km Totales': 'sum'
-    }).rename(columns={
-        'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
-        'Km_CamionA': 'Km_CamionA_Total',
-        'Km_CamionB': 'Km_CamionB_Total',
-        'Km Totales': 'Km_Total'
-    }).reset_index()
-    
+    monthly = df.groupby('Mes').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km Totales':'sum'}).rename(columns={'Fecha':'Operaciones'}).reset_index()
     monthly['Mes_str'] = monthly['Mes'].astype(str)
-    monthly['Km_Promedio_Ruta'] = monthly['Km_Total'] / monthly['Rutas_Total']
-
     return daily, monthly
 
 # =============================================================================
@@ -229,12 +206,14 @@ if page == "Planificación Operativa":
     
     st.markdown("---")
     
+    # Input
     lotes_input = st.text_input("Ingreso de Lotes", placeholder="Ingrese códigos separados por coma (Ej: A05, B10, C95)")
     
     all_stops = [l.strip().upper() for l in lotes_input.split(',') if l.strip()]
     valid_stops = [l for l in all_stops if l in COORDENADAS_LOTES]
     invalid_stops = [l for l in all_stops if l not in COORDENADAS_LOTES]
 
+    # Estado
     c1, c2 = st.columns([1, 3])
     c1.metric("Lotes Identificados", len(valid_stops))
     
@@ -243,6 +222,7 @@ if page == "Planificación Operativa":
     elif valid_stops:
         c2.success("Todos los lotes son válidos.")
 
+    # Mapa Desplegable
     if valid_stops:
         with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
@@ -253,6 +233,7 @@ if page == "Planificación Operativa":
 
     st.markdown("---")
     
+    # BOTÓN
     col_btn, _ = st.columns([1, 3])
     with col_btn:
         calculate = st.button("Ejecutar Algoritmo", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
@@ -268,22 +249,27 @@ if page == "Planificación Operativa":
                     ra = results.get('ruta_a', {})
                     rb = results.get('ruta_b', {})
                     
+                    km_a = ra.get('distancia_km', 0)
+                    km_b = rb.get('distancia_km', 0)
+                    
                     new_entry = {
                         "Fecha": now.strftime("%Y-%m-%d"),
                         "Hora": now.strftime("%H:%M:%S"),
                         "LotesIngresados": ", ".join(valid_stops),
                         "Lotes_CamionA": str(ra.get('lotes_asignados', [])),
                         "Lotes_CamionB": str(rb.get('lotes_asignados', [])),
-                        "Km_CamionA": ra.get('distancia_km', 0),
-                        "Km_CamionB": rb.get('distancia_km', 0),
+                        "Km_CamionA": km_a,
+                        "Km_CamionB": km_b,
+                        "Km Totales": km_a + km_b
                     }
-                    new_entry["Km Totales"] = new_entry["Km_CamionA"] + new_entry["Km_CamionB"]
+                    
                     save_new_route_to_sheet(new_entry)
                     st.session_state.historial_rutas.append(new_entry)
                     st.success("Planificación completada y guardada.")
             except Exception as e:
                 st.error(f"Error crítico: {e}")
 
+    # RESULTADOS
     if st.session_state.results:
         res = st.session_state.results
         if "error" in res:
@@ -310,13 +296,16 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + ra.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
-                        # LINKS Y BOTONES (MODIFICADO)
+                        # Datos
                         link_geo = ra.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         
-                        b1, b2 = st.columns(2)
-                        b1.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        b2.link_button("🌐 Ver Mapa Web (Visual)", link_geo, use_container_width=True)
+                        # --- BOTONES UNO ARRIBA DE OTRO ---
+                        # 1. Iniciar Ruta (Principal - Azul)
+                        st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
+                        
+                        # 2. Ver Mapa (Secundario - Gris)
+                        st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
             # UNIDAD B
             with col_b:
@@ -336,13 +325,16 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + rb.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
-                        # LINKS Y BOTONES (MODIFICADO)
+                        # Datos
                         link_geo = rb.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         
-                        b1, b2 = st.columns(2)
-                        b1.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        b2.link_button("🌐 Ver Mapa Web (Visual)", link_geo, use_container_width=True)
+                        # --- BOTONES UNO ARRIBA DE OTRO ---
+                        # 1. Iniciar Ruta (Principal - Azul)
+                        st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
+                        
+                        # 2. Ver Mapa (Secundario - Gris)
+                        st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
 # =============================================================================
 # PÁGINA 2: HISTORIAL
@@ -381,17 +373,8 @@ elif page == "Indicadores de Gestión":
                 'Lotes_Asignados_Total': 'Lotes Asignados', 'Km_CamionA_Total': 'KM Camión A',
                 'Km_CamionB_Total': 'KM Camión B', 'Km_Total': 'KM Totales', 'Km_Promedio_Ruta': 'KM Promedio por Ruta'
             }
-            st.dataframe(
-                day[list(columns_to_show.keys())].rename(columns=columns_to_show),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
-                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
-                }
-            )
+            st.dataframe(day[list(columns_to_show.keys())].rename(columns=columns_to_show), use_container_width=True, hide_index=True)
+            
             st.markdown("##### Kilómetros Totales Recorridos por Día")
             st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
         
