@@ -587,9 +587,8 @@ elif page == "Monitoreo en Vivo":
             
             # CRÍTICO: Verificación de longitud de lista
             if not route_coordinates or st.session_state.gps_index >= len(route_coordinates):
-                # Si la lista está vacía o el índice es inválido (aunque el reinicio debería atraparlo)
                 st.error("❌ La traza de la ruta GeoJSON está vacía o el índice de GPS es inválido.")
-                st.session_state.gps_index = 0 # Reiniciar el índice
+                st.session_state.gps_index = 0
                 st.stop()
             
             # Avanzar la posición del camión simulado
@@ -600,11 +599,13 @@ elif page == "Monitoreo en Vivo":
                 # Mover al siguiente punto
                 st.session_state.gps_index += 1
             
-            # APLICAMOS LA CORRECCIÓN DE ROBUSTEZ AQUÍ:
+            # APLICAMOS LA CORRECCIÓN DE ROBUSTEZ FINAL:
             current_coords = route_coordinates[st.session_state.gps_index]
             
-            if not isinstance(current_coords, list) or len(current_coords) != 2:
-                st.error("❌ Error: La coordenada actual de la ruta no tiene el formato [lon, lat] esperado.")
+            if current_coords is None or not isinstance(current_coords, list) or len(current_coords) != 2:
+                # Este error atrapa 'None' o formatos inválidos que causan el TypeError.
+                st.error("❌ Error CRÍTICO: El punto GeoJSON es nulo o inválido en el índice de simulación. Reiniciando traza.")
+                st.session_state.gps_index = 0
                 st.stop()
             
             # Desempaquetar (GeoJSON es [lon, lat])
@@ -645,6 +646,9 @@ elif page == "Monitoreo en Vivo":
             
             # Renderizar el mapa interactivo
             st_folium(m, width=900, height=500, key="folium_monitor") 
+
+[Image of GPS monitoring dashboard showing real-time vehicle location on a map]
+
 
             # Informar el punto actual
             st.metric("Punto Simulado Actual", f"Coordenadas: ({current_lat:.4f}, {current_lon:.4f}) - Índice {st.session_state.gps_index}")
