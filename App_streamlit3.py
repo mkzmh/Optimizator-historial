@@ -152,19 +152,13 @@ def get_history_data():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
 
-# --- LÓGICA DE ESTADÍSTICAS ---
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
-    
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
     df['Mes'] = df['Fecha'].dt.to_period('M')
-
-    def count_lotes_input(x):
-        try: return len(str(x).split(',')) if x else 0
-        except: return 0
-
-    def safe_count_assigned(x):
+    
+    def safe_count(x):
         try:
             s = str(x).replace('[','').replace(']','').replace("'", "")
             return len([i for i in s.split(',') if i.strip()])
@@ -173,51 +167,21 @@ def calculate_statistics(df):
     if 'Lotes_CamionA' not in df.columns: df['Lotes_CamionA'] = ""
     if 'Lotes_CamionB' not in df.columns: df['Lotes_CamionB'] = ""
     
-    df['Total_Lotes_Asignados'] = df['Lotes_CamionA'].apply(safe_count_assigned) + df['Lotes_CamionB'].apply(safe_count_assigned)
+    df['Total_Asignados'] = df['Lotes_CamionA'].apply(safe_count) + df['Lotes_CamionB'].apply(safe_count)
     
     for col in ['Km_CamionA', 'Km_CamionB']:
         if col not in df.columns: df[col] = 0.0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    # Calculamos el total internamente para evitar KeyError
     df['Km_Total'] = df['Km_CamionA'] + df['Km_CamionB']
 
-    # Agregación Diaria
-    daily = df.groupby('Fecha').agg({
-        'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
-        'Km_CamionA': 'sum',
-        'Km_CamionB': 'sum',
-        'Km_Total': 'sum'
-    }).rename(columns={
-        'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
-        'Km_CamionA': 'Km_CamionA_Total',
-        'Km_CamionB': 'Km_CamionB_Total',
-        'Km_Total': 'Km_Total'
-    }).reset_index()
-    
+    daily = df.groupby('Fecha').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km_CamionA':'sum', 'Km_CamionB':'sum', 'Km_Total':'sum'}).rename(columns={'Fecha':'Rutas_Total', 'Total_Asignados':'Lotes_Asignados_Total', 'Km_CamionA':'Km_CamionA_Total', 'Km_CamionB':'Km_CamionB_Total', 'Km_Total':'Km_Total'}).reset_index()
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
     daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
 
-    # Agregación Mensual
-    monthly = df.groupby('Mes').agg({
-        'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
-        'Km_CamionA': 'sum',
-        'Km_CamionB': 'sum',
-        'Km_Total': 'sum'
-    }).rename(columns={
-        'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
-        'Km_CamionA': 'Km_CamionA_Total',
-        'Km_CamionB': 'Km_CamionB_Total',
-        'Km_Total': 'Km_Total'
-    }).reset_index()
-    
+    monthly = df.groupby('Mes').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km_CamionA':'sum', 'Km_CamionB':'sum', 'Km_Total':'sum'}).rename(columns={'Fecha':'Rutas_Total', 'Total_Asignados':'Lotes_Asignados_Total', 'Km_CamionA':'Km_CamionA_Total', 'Km_CamionB':'Km_CamionB_Total', 'Km_Total':'Km_Total'}).reset_index()
     monthly['Mes_str'] = monthly['Mes'].astype(str)
     monthly['Km_Promedio_Ruta'] = monthly['Km_Total'] / monthly['Rutas_Total']
-
     return daily, monthly
 
 # =============================================================================
@@ -256,13 +220,15 @@ if page == "Planificación Operativa":
     valid_stops = [l for l in all_stops if l in COORDENADAS_LOTES]
     invalid_stops = [l for l in all_stops if l not in COORDENADAS_LOTES]
 
-    c1, c2 = st.columns([1, 3])
+    # --- SECCIÓN DE MÉTRICAS (MODIFICADA) ---
+    c1, c2 = st.columns(2)
     c1.metric("Lotes Identificados", len(valid_stops))
+    # Tarjeta Roja para errores o Gris si está ok
+    c2.metric("Lotes No Encontrados", len(invalid_stops), delta_color="inverse") 
     
+    # Advertencia detallada solo si hay errores
     if invalid_stops:
-        c2.error(f"⚠️ **Atención:** No se reconocen: **{', '.join(invalid_stops)}**")
-    elif valid_stops:
-        c2.success("Todos los lotes son válidos.")
+        st.warning(f"⚠️ **Atención:** El sistema no reconoce estos códigos: {', '.join(invalid_stops)}")
 
     if valid_stops:
         with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
@@ -316,11 +282,9 @@ if page == "Planificación Operativa":
             st.markdown("### Resultados de la Planificación")
             col_a, col_b = st.columns(2)
 
-            # UNIDAD A
             with col_a:
                 ra = res.get('ruta_a', {})
                 with st.container(border=True):
-                    # TÍTULO CON PATENTE (MODIFICADO)
                     patente = ra.get('patente', 'N/A')
                     st.markdown(f"#### 🚛 Camión 1: {patente}")
                     
@@ -338,15 +302,12 @@ if page == "Planificación Operativa":
                         link_geo = ra.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         
-                        # BOTONES (AZUL Y GRIS - UNO SOBRE OTRO)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
-            # UNIDAD B
             with col_b:
                 rb = res.get('ruta_b', {})
                 with st.container(border=True):
-                    # TÍTULO CON PATENTE (MODIFICADO)
                     patente = rb.get('patente', 'N/A')
                     st.markdown(f"#### 🚛 Camión 2: {patente}")
                     
@@ -364,7 +325,6 @@ if page == "Planificación Operativa":
                         link_geo = rb.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         
-                        # BOTONES (AZUL Y GRIS - UNO SOBRE OTRO)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
@@ -421,5 +381,3 @@ elif page == "Estadísticas":
             )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
-
-
