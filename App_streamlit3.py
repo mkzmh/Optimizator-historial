@@ -7,9 +7,7 @@ import time
 import json
 import gspread
 
-# =============================================================================
-# 1. IMPORTACIONES DEL CEREBRO (ROUTING_LOGIC3)
-# =============================================================================
+# IMPORTACIONES DEL CEREBRO
 from Routing_logic3 import (
     COORDENADAS_LOTES, 
     solve_route_optimization, 
@@ -17,38 +15,22 @@ from Routing_logic3 import (
     COORDENADAS_ORIGEN
 )
 
-# =============================================================================
-# 2. CONFIGURACIÓN INICIAL
-# =============================================================================
-
+# CONFIGURACIÓN INICIAL
 st.set_page_config(page_title="Optimizador Logístico", layout="wide", page_icon="🚛")
-
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    .stMetric {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #e9ecef;
-    }
-    div[data-testid="stExpander"] {
-        background-color: #ffffff;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-    }
+    .stMetric {background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef;}
+    div[data-testid="stExpander"] {background-color: #ffffff; border: 1px solid #ddd; border-radius: 5px;}
     </style>
     """, unsafe_allow_html=True)
 
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB", "Km Totales"]
 
-# =============================================================================
-# 3. FUNCIONES AUXILIARES DE LA APP
-# =============================================================================
-
+# FUNCIONES AUXILIARES
 def generate_gmaps_link(stops_order_names):
     if not stops_order_names: return '#'
     lon_orig, lat_orig = COORDENADAS_ORIGEN
@@ -60,10 +42,7 @@ def generate_gmaps_link(stops_order_names):
     route_parts.append(f"{lat_orig},{lon_orig}")
     return f"https://www.google.com/maps/dir/" + "/".join(route_parts)
 
-# =============================================================================
-# 4. CONEXIÓN GOOGLE SHEETS
-# =============================================================================
-
+# CONEXIÓN GOOGLE SHEETS
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     try:
@@ -82,7 +61,7 @@ def get_gspread_client():
         }
         return gspread.service_account_from_dict(credentials_dict)
     except Exception as e:
-        st.error(f"⚠️ Error de credenciales GSheets: {e}")
+        st.error(f"⚠️ Error credenciales GSheets: {e}")
         return None
 
 def save_new_route_to_sheet(new_route_data):
@@ -96,7 +75,7 @@ def save_new_route_to_sheet(new_route_data):
         st.toast("✅ Guardado en Historial", icon="💾")
         st.cache_data.clear()
     except Exception as e:
-        st.error(f"❌ No se pudo guardar en la hoja: {e}")
+        st.error(f"❌ Error guardando hoja: {e}")
 
 @st.cache_data(ttl=3600)
 def get_history_data():
@@ -107,13 +86,9 @@ def get_history_data():
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
         data = worksheet.get_all_records()
         return pd.DataFrame(data)
-    except:
-        return pd.DataFrame(columns=COLUMNS)
+    except: return pd.DataFrame(columns=COLUMNS)
 
-# =============================================================================
-# 5. LÓGICA DE ESTADÍSTICAS
-# =============================================================================
-
+# ESTADÍSTICAS
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
@@ -123,8 +98,7 @@ def calculate_statistics(df):
     def safe_count(x):
         try:
             s = str(x).replace('[','').replace(']','').replace("'", "")
-            items = [i for i in s.split(',') if i.strip()]
-            return len(items)
+            return len([i for i in s.split(',') if i.strip()])
         except: return 0
 
     df['Total_Asignados'] = df['Lotes_CamionA'].apply(safe_count) + df['Lotes_CamionB'].apply(safe_count)
@@ -137,10 +111,7 @@ def calculate_statistics(df):
     monthly['Mes_str'] = monthly['Mes'].astype(str)
     return daily, monthly
 
-# =============================================================================
-# 6. SESIÓN Y NAVEGACIÓN
-# =============================================================================
-
+# SESIÓN
 if 'historial_cargado' not in st.session_state:
     st.cache_data.clear()
     df_hist = get_history_data()
@@ -156,18 +127,13 @@ page = st.sidebar.radio("Ir a:", ["Calcular Nueva Ruta", "Historial", "Estadíst
 st.sidebar.divider()
 st.sidebar.info(f"📂 Registros: {len(st.session_state.historial_rutas)}")
 
-# =============================================================================
-# PÁGINA 1: CALCULAR
-# =============================================================================
-
+# PÁGINA CALCULAR
 if page == "Calcular Nueva Ruta":
     st.title("🚜 Optimizador Logístico (Híbrido)")
-    st.markdown("**Modo:** Prioridad Mapa Interno (KML) ➔ Respaldo API/Recta.")
+    st.markdown("**Modo:** KML (Tierra) + API (Asfalto). Descarga GPX para OsmAnd.")
     st.divider()
 
-    # --- INPUT ---
     lotes_input = st.text_input("📍 Ingrese Lotes (separados por coma):", placeholder="Ej: A05, B10, C95")
-    
     all_stops = [l.strip().upper() for l in lotes_input.split(',') if l.strip()]
     valid_stops = [l for l in all_stops if l in COORDENADAS_LOTES]
     invalid_stops = [l for l in all_stops if l not in COORDENADAS_LOTES]
@@ -180,18 +146,13 @@ if page == "Calcular Nueva Ruta":
                 coords = COORDENADAS_LOTES[l]
                 map_data.append({'lat': coords[1], 'lon': coords[0], 'name': l, 'color':'#0000ff'})
             st.map(pd.DataFrame(map_data), size=20, color='color')
-        else:
-            st.info("Ingrese lotes para ver el mapa.")
-            
+        else: st.info("Ingrese lotes.")
     with c2:
         st.metric("Lotes Válidos", len(valid_stops))
-        if invalid_stops:
-            st.warning(f"Desconocidos: {', '.join(invalid_stops)}")
+        if invalid_stops: st.warning(f"Desconocidos: {', '.join(invalid_stops)}")
 
-    # --- BOTÓN DE CÁLCULO ---
     if st.button("🚀 Calcular Distribución", type="primary", disabled=len(valid_stops)==0):
-        
-        with st.spinner("🔄 Analizando KML, conectando puntos y optimizando..."):
+        with st.spinner("🔄 Calculando Rutas Híbridas..."):
             try:
                 results = solve_route_optimization(valid_stops)
                 st.session_state.results = results
@@ -200,34 +161,24 @@ if page == "Calcular Nueva Ruta":
                     now = datetime.now(ARG_TZ)
                     ra = results.get('ruta_a', {})
                     rb = results.get('ruta_b', {})
-                    
                     new_entry = {
-                        "Fecha": now.strftime("%Y-%m-%d"),
-                        "Hora": now.strftime("%H:%M:%S"),
+                        "Fecha": now.strftime("%Y-%m-%d"), "Hora": now.strftime("%H:%M:%S"),
                         "LotesIngresados": ", ".join(valid_stops),
                         "Lotes_CamionA": str(ra.get('lotes_asignados', [])),
                         "Lotes_CamionB": str(rb.get('lotes_asignados', [])),
-                        "Km_CamionA": ra.get('distancia_km', 0),
-                        "Km_CamionB": rb.get('distancia_km', 0),
+                        "Km_CamionA": ra.get('distancia_km', 0), "Km_CamionB": rb.get('distancia_km', 0),
                     }
                     new_entry["Km Totales"] = new_entry["Km_CamionA"] + new_entry["Km_CamionB"]
-                    
                     save_new_route_to_sheet(new_entry)
                     st.session_state.historial_rutas.append(new_entry)
-                    st.success("¡Cálculo Completado y Guardado!")
+                    st.success("¡Cálculo Completado!")
+            except Exception as e: st.error(f"❌ Error: {e}")
 
-            except Exception as e:
-                st.error(f"❌ Error inesperado en la App: {e}")
-
-    # --- MOSTRAR RESULTADOS ---
     if st.session_state.results:
         res = st.session_state.results
-        
-        with st.expander("🔍 Ver Detalles Técnicos (Debug)"):
-            st.json(res)
+        with st.expander("🔍 Ver Detalles Técnicos (Debug)"): st.json(res)
 
-        if "error" in res:
-            st.error(res['error'])
+        if "error" in res: st.error(res['error'])
         else:
             st.divider()
             col_a, col_b = st.columns(2)
@@ -236,69 +187,58 @@ if page == "Calcular Nueva Ruta":
             with col_a:
                 ra = res.get('ruta_a', {})
                 st.subheader(f"🚛 {ra.get('nombre', 'Camión A')}")
-                
                 if 'error' in ra: st.error(ra['error'])
                 elif ra.get('mensaje'): st.info(ra['mensaje'])
                 else:
                     st.metric("Distancia", f"{ra.get('distancia_km',0)} km")
                     st.write("**Orden de Paradas:**")
-                    orden = ["🏭 Ingenio"] + ra.get('orden_optimo', []) + ["🏁 Ingenio"]
-                    st.code(" ↓ \n".join(orden))
+                    st.code(" ↓ \n".join(["🏭 Ingenio"] + ra.get('orden_optimo', []) + ["🏁 Ingenio"]))
                     
+                    # LINKS
                     link_geo = ra.get('geojson_link', '#')
                     link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
-                    
-                    # PREPARAR DESCARGA
-                    json_str_a = json.dumps(ra.get('geojson_data', {}))
+                    gpx_data = ra.get('gpx_data', "")
 
                     c1, c2 = st.columns(2)
                     c1.link_button("🗺️ Ver en Web", link_geo, use_container_width=True)
-                    c2.download_button("⬇️ Descargar para OsmAnd", data=json_str_a, file_name="ruta_A.geojson", mime="application/json", use_container_width=True)
+                    # BOTÓN DE DESCARGA GPX (Correcto para OsmAnd)
+                    c2.download_button("⬇️ Descargar GPX (OsmAnd)", data=gpx_data, file_name="Ruta_A.gpx", mime="application/gpx+xml", use_container_width=True)
                     st.link_button("📱 Puntos en GMaps", link_maps, use_container_width=True)
 
             # CAMIÓN B
             with col_b:
                 rb = res.get('ruta_b', {})
                 st.subheader(f"🚛 {rb.get('nombre', 'Camión B')}")
-                
                 if 'error' in rb: st.error(rb['error'])
                 elif rb.get('mensaje'): st.info(rb['mensaje'])
                 else:
                     st.metric("Distancia", f"{rb.get('distancia_km',0)} km")
                     st.write("**Orden de Paradas:**")
-                    orden = ["🏭 Ingenio"] + rb.get('orden_optimo', []) + ["🏁 Ingenio"]
-                    st.code(" ↓ \n".join(orden))
+                    st.code(" ↓ \n".join(["🏭 Ingenio"] + rb.get('orden_optimo', []) + ["🏁 Ingenio"]))
                     
+                    # LINKS
                     link_geo = rb.get('geojson_link', '#')
                     link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
-
-                    # PREPARAR DESCARGA
-                    json_str_b = json.dumps(rb.get('geojson_data', {}))
+                    gpx_data = rb.get('gpx_data', "")
                     
                     c1, c2 = st.columns(2)
                     c1.link_button("🗺️ Ver en Web", link_geo, use_container_width=True)
-                    c2.download_button("⬇️ Descargar para OsmAnd", data=json_str_b, file_name="ruta_B.geojson", mime="application/json", use_container_width=True)
+                    # BOTÓN DE DESCARGA GPX
+                    c2.download_button("⬇️ Descargar GPX (OsmAnd)", data=gpx_data, file_name="Ruta_B.gpx", mime="application/gpx+xml", use_container_width=True)
                     st.link_button("📱 Puntos en GMaps", link_maps, use_container_width=True)
 
-# =============================================================================
-# PÁGINA 2: HISTORIAL
-# =============================================================================
+# PÁGINAS SECUNDARIAS
 elif page == "Historial":
     st.title("📋 Historial")
     df = pd.DataFrame(st.session_state.historial_rutas)
     if not df.empty: st.dataframe(df, use_container_width=True, hide_index=True)
     else: st.info("Historial vacío.")
 
-# =============================================================================
-# PÁGINA 3: ESTADÍSTICAS
-# =============================================================================
 elif page == "Estadísticas":
     st.title("📊 Estadísticas")
     df = pd.DataFrame(st.session_state.historial_rutas)
     if not df.empty:
-        day, month = calculate_statistics(df)
-        st.subheader("Diario")
-        st.bar_chart(day, x='Fecha_str', y='Km_Dia')
-        st.subheader("Mensual")
-        st.dataframe(month, use_container_width=True)
+        d, m = calculate_statistics(df)
+        st.subheader("Diario"); st.bar_chart(d, x='Fecha_str', y='Km_Dia')
+        st.subheader("Mensual"); st.dataframe(m, use_container_width=True)
     else: st.info("Sin datos.")
