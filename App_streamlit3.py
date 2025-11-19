@@ -9,6 +9,8 @@ import gspread
 from urllib.parse import quote
 
 # Importa la lógica y constantes del módulo vecino.
+# NOTA: Asumimos que las funciones de GeoJSON (generate_geojson_io_link, generate_geojson)
+# YA están definidas en Routing_logic3.py y se importan correctamente.
 from Routing_logic3 import (
     COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN,
     generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO # Aseguramos las importaciones necesarias
@@ -68,12 +70,14 @@ def generate_gmaps_link(stops_order):
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     """Establece la conexión con Google Sheets usando variables de secrets separadas."""
+    print("DEBUG: Intentando inicializar el cliente GSpread...") # <-- PUNTO DE CONTROL A
     try:
         credentials_dict = {
             "type": "service_account",
             "project_id": st.secrets["gsheets_project_id"],
             "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"].replace('\\n', '\n'),
+            # CRÍTICO: Aseguramos que los saltos de línea se manejen correctamente.
+            "private_key": st.secrets["gsheets_private_key"].replace('\\n', '\n'), 
             "client_email": st.secrets["gsheets_client_email"],
             "client_id": st.secrets["gsheets_client_id"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -84,11 +88,15 @@ def get_gspread_client():
         }
 
         gc = gspread.service_account_from_dict(credentials_dict)
+        print("DEBUG: Cliente GSpread INICIALIZADO con éxito.") # <-- PUNTO DE CONTROL A
         return gc
     except KeyError as e:
+        # Se modificó para imprimir en terminal y mostrar en web (si es posible)
+        print(f"ERROR FATAL (Credenciales): ⚠️ Falta la clave '{e}' en Streamlit Secrets.") 
         st.error(f"⚠️ Error de Credenciales: Falta la clave '{e}' en Streamlit Secrets. El historial está desactivado.")
         return None
     except Exception as e:
+        print(f"ERROR FATAL (Conexión): ❌ {e}") # <-- PUNTO DE CONTROL A
         st.error(f"❌ Error fatal al inicializar la conexión con GSheets: {e}")
         return None
 
@@ -124,6 +132,7 @@ def save_new_route_to_sheet(new_route_data):
     """Escribe una nueva ruta a Google Sheets."""
     client = get_gspread_client()
     if not client:
+        print("ADVERTENCIA (Guardado): Fallo el guardado porque el cliente GSheets NO está disponible.") # <-- PUNTO DE CONTROL B
         st.warning("No se pudo guardar la ruta por fallo de conexión a Google Sheets.")
         return
 
@@ -132,13 +141,17 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
 
         values_to_save = [new_route_data[col] for col in COLUMNS]
+        print(f"DEBUG (Guardado): Valores a guardar: {values_to_save}") # <-- PUNTO DE CONTROL B
 
         worksheet.append_row(values_to_save)
+        print("DEBUG (Guardado): Fila AÑADIDA con éxito a Google Sheets.") # <-- PUNTO DE CONTROL B
 
         st.cache_data.clear()
 
     except Exception as e:
-        st.error(f"❌ Error al guardar datos en Google Sheets. Verifique que la Fila 1 tenga 7 columnas: {e}")
+        print(f"ERROR CRÍTICO (Guardado): ❌ Fallo al escribir en la hoja de cálculo. Detalles: {e}") # <-- PUNTO DE CONTROL B
+        st.error(f"❌ ERROR DE ESCRITURA: Verifique Permisos y Encabezados. Detalles en logs.")
+        st.error(f"Detalles del fallo: {e}") # Añadido detalle para la interfaz web
 
 
 # --- Funciones de Estadística ---
@@ -244,26 +257,12 @@ if page == "Calcular Nueva Ruta":
 
     st.markdown("---")
 
-    st.header("Selección de Destinos y Capacidad")
+    st.header("Selección de Destinos")
 
-    col_input, col_capacity = st.columns([2, 1])
-
-    with col_input:
-        lotes_input = st.text_input(
-            "Ingrese los lotes a visitar (separados por coma, ej: A05, B10, C95):",
-            placeholder="A05, A10, B05, B10, C95, D01, K01"
-        )
-    
-    with col_capacity:
-        # Input de Capacidad Máxima
-        max_capacity = st.number_input(
-            "Capacidad Máxima del Vehículo (Unidades)",
-            min_value=1,
-            value=15, # Valor por defecto
-            step=1
-        )
-
-    st.markdown("---")
+    lotes_input = st.text_input(
+        "Ingrese los lotes a visitar (separados por coma, ej: A05, B10, C95):",
+        placeholder="A05, A10, B05, B10, C95, D01, K01"
+    )
 
     col_map, col_details = st.columns([2, 1])
 
@@ -328,11 +327,11 @@ if page == "Calcular Nueva Ruta":
             try:
                 valid_stops = [l for l in all_stops_to_visit if l in COORDENADAS_LOTES]
                 
-                # LLAMADA A LA FUNCIÓN CON LA NUEVA CAPACIDAD
-                results = solve_route_optimization(valid_stops, max_capacity=max_capacity)
+                # LLAMADA A LA FUNCIÓN EN ROUTING_LOGIC3
+                results = solve_route_optimization(valid_stops)
 
                 if "error" in results:
-                    st.error(f"❌ Error en el cálculo: {results['error']}")
+                    st.error(f"❌ Error en la API de Ruteo: {results['error']}")
                 else:
                     # 3. Generar Enlaces Google Maps (Se mantiene)
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
@@ -358,6 +357,7 @@ if page == "Calcular Nueva Ruta":
 
             except Exception as e:
                 st.session_state.results = None
+                print(f"ERROR EN RUTEADO: La función solve_route_optimization falló. Excepción: {e}") # <-- PUNTO DE CONTROL C
                 st.error(f"❌ Ocurrió un error inesperado durante el ruteo: {e}")
 
     # -------------------------------------------------------------------------
@@ -367,17 +367,9 @@ if page == "Calcular Nueva Ruta":
     if st.session_state.results:
         results = st.session_state.results
 
-        # Obtener el valor de demanda de forma segura (usando .get)
-        carga_a = results.get('ruta_a', {}).get('demanda_total', 'N/A')
-        carga_b = results.get('ruta_b', {}).get('demanda_total', 'N/A')
-
         st.divider()
         st.header("Análisis de Rutas Generadas")
         st.metric("Distancia Interna de Agrupación (Minimización)", f"{results['agrupacion_distancia_km']:.2f} km")
-        
-        # MOSTRAR LA CARGA TOTAL
-        st.metric("Carga Total (A/B)", f"{carga_a}/{carga_b} unidades", f"Máximo permitido: {max_capacity} unidades")
-        
         st.divider()
 
         res_a = results.get('ruta_a', {})
@@ -388,7 +380,6 @@ if page == "Calcular Nueva Ruta":
         with col_a:
             st.subheader(f"🚛 Camión 1: {res_a.get('patente', 'N/A')}")
             with st.container(border=True):
-                st.markdown(f"**Carga Total:** **{carga_a} unidades**")
                 st.markdown(f"**Total Lotes:** {len(res_a.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_a.get('distancia_km', 'N/A'):.2f} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_a.get('lotes_asignados', []))}`")
@@ -401,12 +392,12 @@ if page == "Calcular Nueva Ruta":
                     type="primary",
                     use_container_width=True
                 )
+                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
                 st.link_button("🌐 Ver GeoJSON de Ruta A", res_a.get('geojson_link', '#'), use_container_width=True)
                 
         with col_b:
             st.subheader(f"🚚 Camión 2: {res_b.get('patente', 'N/A')}")
             with st.container(border=True):
-                st.markdown(f"**Carga Total:** **{carga_b} unidades**")
                 st.markdown(f"**Total Lotes:** {len(res_b.get('lotes_asignados', []))}")
                 st.markdown(f"**Distancia Total (TSP):** **{res_b.get('distancia_km', 'N/A'):.2f} km**")
                 st.markdown(f"**Lotes Asignados:** `{' → '.join(res_b.get('lotes_asignados', []) )}`")
@@ -419,42 +410,8 @@ if page == "Calcular Nueva Ruta":
                     type="primary",
                     use_container_width=True
                 )
+                # CRÍTICO: Usamos el link completo que YA trae la traza de GeoJSON
                 st.link_button("🌐 Ver GeoJSON de Ruta B", res_b.get('geojson_link', '#'), use_container_width=True)
-                
-        # =============================================================================
-        # NUEVA SECCIÓN: INDICACIONES PASO A PASO
-        # =============================================================================
-        st.divider()
-
-        instructions_a = res_a.get('instrucciones', [])
-        instructions_b = res_b.get('instrucciones', [])
-        
-        if instructions_a or instructions_b:
-            st.header("📋 Indicaciones Detalladas para el Despacho")
-            
-            tab_a, tab_b = st.tabs(["🚛 Camión 1 (Ruta A)", "🚚 Camión 2 (Ruta B)"])
-
-            with tab_a:
-                if instructions_a:
-                    st.subheader(f"Ruta A - Distancia: {res_a.get('distancia_km', 'N/A')} km")
-                    # Mostrar las instrucciones como una lista ordenada
-                    for i, step in enumerate(instructions_a):
-                        # Mostrar la distancia del segmento de ruta en km
-                        distance = f" ({round(step.get('distance', 0) / 1000, 2)} km)" if step.get('distance') else ""
-                        st.markdown(f"**{i+1}.** {step.get('text')}{distance}")
-                else:
-                    st.info("Instrucciones de ruta no disponibles para el Camión 1.")
-
-            with tab_b:
-                if instructions_b:
-                    st.subheader(f"Ruta B - Distancia: {res_b.get('distancia_km', 'N/A')} km")
-                    # Mostrar las instrucciones como una lista ordenada
-                    for i, step in enumerate(instructions_b):
-                        distance = f" ({round(step.get('distance', 0) / 1000, 2)} km)" if step.get('distance') else ""
-                        st.markdown(f"**{i+1}.** {step.get('text')}{distance}")
-                else:
-                    st.info("Instrucciones de ruta no disponibles para el Camión 2.")
-                
 
     else:
         st.info("El reporte aparecerá aquí después de un cálculo exitoso.")
