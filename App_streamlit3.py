@@ -253,7 +253,7 @@ if page == "Planificación Operativa":
 
     # MAPA DESPLEGABLE
     if valid_stops:
-        with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
+        with st.expander("🗺️ Ver Mapa de Lotes", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
             for l in valid_stops:
                 coords = COORDENADAS_LOTES[l]
@@ -361,7 +361,7 @@ if page == "Planificación Operativa":
 # =============================================================================
 # PÁGINA 2: HISTORIAL
 # =============================================================================
-elif page == "Registro Histórico":
+elif page == "Historial":
     st.title("Registro Histórico de Operaciones")
     df = pd.DataFrame(st.session_state.historial_rutas)
     if not df.empty:
@@ -381,7 +381,7 @@ elif page == "Registro Histórico":
 # =============================================================================
 # PÁGINA 3: ESTADÍSTICAS
 # =============================================================================
-elif page == "Indicadores de Gestión":
+elif page == "Estadísticas":
     st.title("Indicadores Clave de Desempeño (KPIs)")
     df = pd.DataFrame(st.session_state.historial_rutas)
     
@@ -413,3 +413,4 @@ elif page == "Indicadores de Gestión":
             )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
+
