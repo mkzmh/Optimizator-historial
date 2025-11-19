@@ -384,4 +384,5 @@ def solve_route_optimization(all_intermediate_stops):
             else: results[key] = {"error": "Error calculando ruta"}
         else: results[key] = {"mensaje": "Sin lotes"}
         
-    return results000
+    return results
+
