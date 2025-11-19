@@ -10,7 +10,7 @@ from shapely.geometry import Point
 from math import radians, sin, cos, sqrt, atan2
 from itertools import combinations
 from urllib.parse import quote
-from datetime import datetime # Importante para el GPX
+from datetime import datetime
 import os
 
 # =============================================================================
@@ -27,9 +27,11 @@ VEHICLES = {
     "AE898TW": {"name": "Camión 2 (Ruta B)"},
 }
 
-# --- DICCIONARIO DE COORDENADAS COMPLETO ---
+# --- TU DICCIONARIO DE COORDENADAS COMPLETO ---
+# (Asegúrate de no borrar tus coordenadas, aquí pongo las primeras y últimas como referencia)
 COORDENADAS_LOTES = {
     "A01_1": [-64.254233333333332, -23.255027777777777], "A01_2": [-64.26275833333334, -23.24804166666667], "A05": [-64.25640277777778, -23.247030555555558],
+    # ... (Pega aquí el resto de tu lista larga de lotes si la borraste) ...
     "A05_2": [-64.254025, -23.249480555555557], "A06_1": [-64.246711111111111, -23.245766666666668], "A06_2": [-64.246180555555554, -23.247272222222222],
     "A07_1": [-64.24048611111111, -23.244858333333333], "A07_2": [-64.24014722222222, -23.246097222222222], "A08_1": [-64.212313888888886, -23.247027777777777],
     "A08_2": [-64.20845833333334, -23.243086111111111], "A08_3": [-64.203083333333339, -23.239622222222224], "A09_1": [-64.229127777777776, -23.249513888888888],
@@ -172,18 +174,12 @@ GRAFO_GLOBAL = None
 # =============================================================================
 
 def generate_gpx(route_name, points_sequence):
-    """
-    Genera un archivo GPX válido para OsmAnd/Garmin.
-    """
     gpx_content = '<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n'
     gpx_content += '<gpx version="1.1" creator="OptimizadorLogistico">\n'
     gpx_content += f'  <trk>\n    <name>{route_name}</name>\n    <trkseg>\n'
-    
     for point in points_sequence:
-        # point es [lon, lat] en GeoJSON, pero GPX usa lat="..." lon="..."
         lon, lat = point
         gpx_content += f'      <trkpt lat="{lat}" lon="{lon}"></trkpt>\n'
-        
     gpx_content += '    </trkseg>\n  </trk>\n</gpx>'
     return gpx_content
 
@@ -192,37 +188,26 @@ def cargar_mapa_kml():
     if GRAFO_GLOBAL is not None: return GRAFO_GLOBAL
     try:
         fiona.drvsupport.supported_drivers['KML'] = 'rw'
-        if not os.path.exists(ARCHIVO_KML):
-            return None
-
-        # MULTI-LAYER: Leer todas las capas
+        if not os.path.exists(ARCHIVO_KML): return None
         layers = fiona.listlayers(ARCHIVO_KML)
         gdfs = []
         for layer in layers:
             try:
                 gdf_layer = gpd.read_file(ARCHIVO_KML, driver='KML', layer=layer)
                 lines = gdf_layer[gdf_layer.geometry.type.isin(['LineString', 'MultiLineString'])]
-                if not lines.empty:
-                    gdfs.append(lines)
+                if not lines.empty: gdfs.append(lines)
             except: pass
-        
         if not gdfs: return None
-        
-        # Unir todo
         full_map = pd.concat(gdfs, ignore_index=True)
         GRAFO_GLOBAL = momepy.gdf_to_nx(full_map, approach='primal')
         return GRAFO_GLOBAL
-
-    except Exception:
-        return None
+    except Exception: return None
 
 def obtener_nodo_cercano(G, punto_gps):
-    """Busca el nodo más cercano en el grafo (Snap KML)"""
     p_obj = Point(punto_gps[0], punto_gps[1])
     return min(G.nodes, key=lambda n: Point(n[0], n[1]).distance(p_obj))
 
 def haversine(coord1, coord2):
-    """Distancia en línea recta (Respaldo)"""
     lon1, lat1 = map(radians, coord1)
     lon2, lat2 = map(radians, coord2)
     R = 6371000
@@ -238,22 +223,17 @@ def haversine(coord1, coord2):
 
 def get_segment_route(p1, p2, G_kml):
     segment_data = {'coords': [], 'dist': 0}
-
-    # --- INTENTO 1: KML LOCAL ---
     if G_kml:
         try:
             n1 = obtener_nodo_cercano(G_kml, p1)
             n2 = obtener_nodo_cercano(G_kml, p2)
             path = nx.shortest_path(G_kml, source=n1, target=n2, weight='mm_len')
             dist = nx.shortest_path_length(G_kml, source=n1, target=n2, weight='mm_len')
-            
             segment_data['coords'] = [list(n) for n in path]
             segment_data['dist'] = dist
             return segment_data
-        except nx.NetworkXNoPath:
-            pass 
+        except nx.NetworkXNoPath: pass
 
-    # --- INTENTO 2: API ---
     try:
         body = {"points": [p1, p2], "vehicle": "car", "points_encoded": False}
         resp = requests.post(URL_GH_ROUTE, json=body, timeout=2)
@@ -265,19 +245,15 @@ def get_segment_route(p1, p2, G_kml):
             return segment_data
     except: pass
 
-    # --- INTENTO 3: RECTA ---
     segment_data['coords'] = [list(p1), list(p2)]
     segment_data['dist'] = haversine(p1, p2)
     return segment_data
 
 def calculate_hybrid_route(points_list):
     G = cargar_mapa_kml()
-    
     pendientes = points_list[1:-1]
     ordenado = [points_list[0]]
     actual = points_list[0]
-    
-    # Nearest Neighbor TSP
     while pendientes:
         mas_cerca = min(pendientes, key=lambda p: haversine(actual, p))
         ordenado.append(mas_cerca)
@@ -288,15 +264,13 @@ def calculate_hybrid_route(points_list):
     ruta_final_coords = []
     distancia_total = 0
     indices_originales = []
-
-    # Recuperar índices
     originales_refs = [tuple(p) for p in points_list]
+    
     for p in ordenado:
         try:
             idx = -1; min_d = 1e-9
             for i, ref in enumerate(originales_refs):
-                if abs(ref[0]-p[0]) < min_d and abs(ref[1]-p[1]) < min_d:
-                    idx = i; break
+                if abs(ref[0]-p[0]) < min_d and abs(ref[1]-p[1]) < min_d: idx = i; break
             if idx == -1: idx = originales_refs.index(tuple(p))
             indices_originales.append(idx)
         except: pass
@@ -306,13 +280,7 @@ def calculate_hybrid_route(points_list):
         distancia_total += tramo['dist']
         ruta_final_coords.extend(tramo['coords'])
     
-    return {
-        'paths': [{
-            'distance': distancia_total, 
-            'points': {'coordinates': ruta_final_coords},
-            'points_order': indices_originales
-        }]
-    }
+    return {'paths': [{'distance': distancia_total, 'points': {'coordinates': ruta_final_coords}, 'points_order': indices_originales}]}
 
 # =============================================================================
 # 4. GENERADORES DE SALIDA
@@ -320,28 +288,15 @@ def calculate_hybrid_route(points_list):
 
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km, vehicle_id):
     features = []
-    color_map = {"AF820AB": "#0080FF", "AE898TW": "#FF4500"}
-    line_color = color_map.get(vehicle_id, "#000000")
-    
+    line_color = {"AF820AB": "#0080FF", "AE898TW": "#FF4500"}.get(vehicle_id, "#000000")
     for i, coords in enumerate(points_sequence):
         is_orig = (i==0); is_dest = (i==len(points_sequence)-1)
         lote_name = "Punto"
         for k, v in COORDENADAS_LOTES.items():
-            if abs(v[0]-coords[0]) < 0.0001 and abs(v[1]-coords[1]) < 0.0001:
-                lote_name = k; break
-        
-        props = {
-            "name": f"{i} - {'ORIGEN' if is_orig else 'DESTINO' if is_dest else 'PARADA'} ({lote_name})",
-            "marker-color": "#008000" if is_orig else "#FF0000" if is_dest else line_color,
-            "marker-symbol": str(i)
-        }
+            if abs(v[0]-coords[0]) < 0.0001 and abs(v[1]-coords[1]) < 0.0001: lote_name = k; break
+        props = {"name": f"{i}-{lote_name}", "marker-color": "#008000" if is_orig else "#FF0000" if is_dest else line_color, "marker-symbol": str(i)}
         features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": coords}, "properties": props})
-        
-    features.append({
-        "type": "Feature",
-        "geometry": {"type": "LineString", "coordinates": path_coordinates},
-        "properties": {"name": route_name, "stroke": line_color, "stroke-width": 4, "distance": total_distance_km}
-    })
+    features.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": path_coordinates}, "properties": {"name": route_name, "stroke": line_color, "stroke-width": 4}})
     return {"type": "FeatureCollection", "features": features}
 
 def generate_geojson_io_link(geojson_object):
@@ -361,8 +316,7 @@ def find_best_grouping_variable(all_lotes, min_group_size=1):
                         d += haversine(COORDENADAS_LOTES[g[i]], COORDENADAS_LOTES[g[j]])
                 return d
             current = calc_dist(ga) + calc_dist(gb)
-            if current < min_dist:
-                min_dist = current; best_a = ga; best_b = gb
+            if current < min_dist: min_dist = current; best_a = ga; best_b = gb
     return best_a, best_b, round(min_dist/1000, 2)
 
 # =============================================================================
@@ -376,29 +330,21 @@ def solve_route_optimization(all_intermediate_stops):
     for vid, grp, key in [("AF820AB", grp_a, "ruta_a"), ("AE898TW", grp_b, "ruta_b")]:
         if grp:
             coords = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[n] for n in grp] + [COORDENADAS_ORIGEN]
-            
-            # CÁLCULO HÍBRIDO
             resp = calculate_hybrid_route(coords)
-            
             if resp:
                 dist_km = round(resp['paths'][0]['distance']/1000, 2)
                 path_coords = resp['paths'][0]['points']['coordinates']
                 order_idxs = resp['paths'][0]['points_order']
-                
                 names_pool = ["Ingenio"] + grp + ["Ingenio"]
                 ordered_names = []
                 seen = set()
                 for idx in order_idxs:
                     if idx < len(names_pool):
                         nm = names_pool[idx]
-                        if nm == "Ingenio" or nm not in seen:
-                            ordered_names.append(nm)
-                            if nm != "Ingenio": seen.add(nm)
+                        if nm == "Ingenio" or nm not in seen: ordered_names.append(nm); 
+                        if nm != "Ingenio": seen.add(nm)
 
-                # Generamos Objetos
                 geojson_obj = generate_geojson(key, [coords[i] for i in order_idxs if i < len(coords)], path_coords, dist_km, vid)
-                
-                # AQUÍ GENERAMOS EL GPX PARA DESCARGAR
                 gpx_str = generate_gpx(f"Ruta_{vid}_{datetime.now().strftime('%d%m')}", path_coords)
 
                 results[key] = {
@@ -406,9 +352,8 @@ def solve_route_optimization(all_intermediate_stops):
                     "lotes_asignados": grp, "distancia_km": dist_km,
                     "orden_optimo": ordered_names[1:-1] if len(ordered_names)>2 else [],
                     "geojson_link": generate_geojson_io_link(geojson_obj),
-                    "gpx_data": gpx_str # DATO GPX GUARDADO
+                    "gpx_data": gpx_str
                 }
             else: results[key] = {"error": "Error calculando ruta"}
         else: results[key] = {"mensaje": "Sin lotes"}
-        
     return results
