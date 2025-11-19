@@ -254,7 +254,7 @@ if page == "Planificación Operativa":
 
     # Mapa Desplegable
     if valid_stops:
-        with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
+        with st.expander("🗺️ Ver Mapa de Lotes", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
             for l in valid_stops:
                 coords = COORDENADAS_LOTES[l]
@@ -333,11 +333,8 @@ if page == "Planificación Operativa":
                         json_data = json.dumps(ra.get('geojson_data', {}))
                         
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        
-                        b1, b2 = st.columns(2)
                         b1.link_button("🌐 Ver Mapa Web", ra.get('geojson_link', '#'), use_container_width=True)
-                        b2.download_button("💾 Bajar GeoJSON", data=json_data, file_name="Ruta_A.geojson", mime="application/json", use_container_width=True)
-
+                       
             # UNIDAD B
             with col_b:
                 rb = res.get('ruta_b', {})
@@ -362,15 +359,12 @@ if page == "Planificación Operativa":
                         json_data = json.dumps(rb.get('geojson_data', {}))
                         
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        
-                        b1, b2 = st.columns(2)
                         b1.link_button("🌐 Ver Mapa Web", rb.get('geojson_link', '#'), use_container_width=True)
-                        b2.download_button("💾 Bajar GeoJSON", data=json_data, file_name="Ruta_B.geojson", mime="application/json", use_container_width=True)
-
+                        
 # =============================================================================
 # PÁGINA 2: HISTORIAL
 # =============================================================================
-elif page == "Registro Histórico":
+elif page == "Historial":
     st.title("Registro Histórico de Operaciones")
     df = pd.DataFrame(st.session_state.historial_rutas)
     if not df.empty:
@@ -390,7 +384,7 @@ elif page == "Registro Histórico":
 # =============================================================================
 # PÁGINA 3: ESTADÍSTICAS
 # =============================================================================
-elif page == "Indicadores de Gestión":
+elif page == "Estadísticas":
     st.title("Indicadores Clave de Desempeño (KPIs)")
     df = pd.DataFrame(st.session_state.historial_rutas)
     
@@ -424,7 +418,7 @@ elif page == "Indicadores de Gestión":
             
             # Gráfico
             st.markdown("##### Kilómetros Totales Recorridos por Día")
-            st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
+            st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_AF820AB', 'Km_CamionB_AE898TW'], color=['#003366', '#00A8E8'])
         
         st.subheader("Consolidado Mensual")
         st.dataframe(
@@ -437,3 +431,4 @@ elif page == "Indicadores de Gestión":
         )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
+
