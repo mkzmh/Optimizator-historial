@@ -132,7 +132,7 @@ COORDENADAS_LOTES = {
 "G01": [-64.4041389, -23.2068167],"G02": [-64.4097611, -23.2142667],"G06": [-64.4113528, -23.199625],"G25": [-64.4147556, -23.2212639],
 "G26": [-64.4207583, -23.2228008],"G21": [-64.4267556, -23.2366861],"G23": [-64.430825, -23.2416944],"G07": [-64.4181694, -23.2098583],
 "G09": [-64.4231833, -23.2158667],"G10": [-64.4282611, -23.2236222],"G29": [-64.4321306, -23.2292972],"G38": [-64.4381167, -23.2282806],
-"G39": [-64.4420944, -23.2257361],"G42": [-64.4352278, -23.2186972],"G41": [-64.4313889, -23.2116941],"G47": [-64.4290111, -23.2019528],
+"G39": [-64.4420944, -23.2257361],"G42": [-64.4352278, -23.2186972],"G41": [-64.4313889, -23.2116944],"G47": [-64.4290111, -23.2019528],
 "G46": [-64.4250972, -23.19815],"G14": [-64.4106972, -23.1827306],"G15": [-64.4187556, -23.1781889],"G49": [-64.4262194, -23.1885222],
 "G50": [-64.43065, -23.1938722],"G51": [-64.4341028, -23.198525],"G65": [-64.4355861, -23.2039611],"G66": [-64.4441972, -23.2076444],
 "G67": [-64.4479139, -23.2116944],"G61": [-64.4509333, -23.2145194],"G40": [-64.4484139, -23.2207722],"G77": [-64.455025, -23.2129917],
@@ -157,7 +157,7 @@ COORDENADAS_LOTES = {
 COORDENADAS_LOTES_REVERSO = {tuple(v): k for k, v in COORDENADAS_LOTES.items()}
 
 # =============================================================================
-# 2. FUNCIONES AUXILIARES
+# 2. FUNCIONES AUXILIARES (DEBE TENER SANGRÍA INTERNA)
 # =============================================================================
 
 def haversine(coord1, coord2):
@@ -239,7 +239,6 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
         is_destination = (i == num_points - 1)
         lote_name = "Ingenio"
         if not is_origin and not is_destination:
-            # Buscar el nombre del lote usando las coordenadas (redondeo a 6 decimales para seguridad)
             lote_name = next((name for original_coords, name in COORDENADAS_LOTES_REVERSO.items()
                              if round(original_coords[0], 6) == round(coords[0], 6) and round(original_coords[1], 6) == round(coords[1], 6)),
                              "Punto Intermedio")
@@ -299,33 +298,18 @@ def solve_route_optimization(all_intermediate_stops):
     # --- RUTA A (AF820AB) ---
     all_stops_coords_A = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_a_names] + [COORDENADAS_ORIGEN]
     response_A = make_api_request(all_stops_coords_A)
-    
     if response_A:
         TOTAL_DISTANCE_KM_A = round(response_A['paths'][0]['distance'] / 1000, 2)
         optimized_indices_A = response_A['paths'][0]['points_order']
         all_stops_names_A = ["Ingenio"] + group_a_names + ["Ingenio"]
         optimized_name_sequence_A = [all_stops_names_A[i] for i in optimized_indices_A]
-        
-        # GENERAR GEOJSON COMO OBJETO Y COMO STRING
-        geojson_a_obj = generate_geojson(
-            "Ruta A", 
-            [all_stops_coords_A[i] for i in optimized_indices_A], 
-            response_A['paths'][0]['points']['coordinates'], 
-            TOTAL_DISTANCE_KM_A, 
-            VEHICLE_A_ID
-        )
-        geojson_a_str = json.dumps(geojson_a_obj) # Convertir a string para Streamlit session state
-
         results["ruta_a"] = {
             "patente": VEHICLE_A_ID,
             "nombre": VEHICLES[VEHICLE_A_ID]['name'],
             "lotes_asignados": group_a_names,
             "distancia_km": TOTAL_DISTANCE_KM_A,
             "orden_optimo": optimized_name_sequence_A[1:-1],
-            # CLAVE AÑADIDA PARA EL MONITOREO:
-            "geojson_data": geojson_a_str, 
-            # Clave GeoJSON Link (usa el objeto generado)
-            "geojson_link": generate_geojson_io_link(geojson_a_obj)
+            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta A", [all_stops_coords_A[i] for i in optimized_indices_A], response_A['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_A, VEHICLE_A_ID))
         }
     else:
         return {"error": "Fallo al obtener la Ruta A de la API. (Verifique API Key o límites)"}
@@ -336,33 +320,18 @@ def solve_route_optimization(all_intermediate_stops):
     # --- RUTA B (AE898TW) ---
     all_stops_coords_B = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_b_names] + [COORDENADAS_ORIGEN]
     response_B = make_api_request(all_stops_coords_B)
-    
     if response_B:
         TOTAL_DISTANCE_KM_B = round(response_B['paths'][0]['distance'] / 1000, 2)
         optimized_indices_B = response_B['paths'][0]['points_order']
         all_stops_names_B = ["Ingenio"] + group_b_names + ["Ingenio"]
         optimized_name_sequence_B = [all_stops_names_B[i] for i in optimized_indices_B]
-        
-        # GENERAR GEOJSON COMO OBJETO Y COMO STRING
-        geojson_b_obj = generate_geojson(
-            "Ruta B", 
-            [all_stops_coords_B[i] for i in optimized_indices_B], 
-            response_B['paths'][0]['points']['coordinates'], 
-            TOTAL_DISTANCE_KM_B, 
-            VEHICLE_B_ID
-        )
-        geojson_b_str = json.dumps(geojson_b_obj) # Convertir a string para Streamlit session state
-
         results["ruta_b"] = {
             "patente": VEHICLE_B_ID,
             "nombre": VEHICLES[VEHICLE_B_ID]['name'],
             "lotes_asignados": group_b_names,
             "distancia_km": TOTAL_DISTANCE_KM_B,
             "orden_optimo": optimized_name_sequence_B[1:-1],
-            # CLAVE AÑADIDA PARA EL MONITOREO:
-            "geojson_data": geojson_b_str,
-            # Clave GeoJSON Link (usa el objeto generado)
-            "geojson_link": generate_geojson_io_link(geojson_b_obj)
+            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta B", [all_stops_coords_B[i] for i in optimized_indices_B], response_B['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_B, VEHICLE_B_ID))
         }
     else:
         return {"error": "Fallo al obtener la Ruta B de la API. (Verifique API Key o límites)"}
