@@ -6,3 +6,9 @@ pytz
 folium
 streamlit_folium
 scikit-learn
+geopandas
+momepy
+networkx
+fiona
+shapely
+matplotlib
