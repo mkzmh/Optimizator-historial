@@ -134,68 +134,76 @@ def get_history_data():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
 
-# --- FUNCIÓN DE ESTADÍSTICAS CORREGIDA (EL ERROR ESTABA AQUÍ) ---
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
     
+    # Preparación de datos
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
     df['Mes'] = df['Fecha'].dt.to_period('M')
 
-    def safe_count(x):
+    # Funciones de conteo
+    def count_lotes_input(x):
+        try: return len(str(x).split(',')) if x else 0
+        except: return 0
+
+    def safe_count_assigned(x):
         try:
             s = str(x).replace('[','').replace(']','').replace("'", "")
             return len([i for i in s.split(',') if i.strip()])
         except: return 0
 
-    # Aseguramos que existan las columnas de conteo
+    # Generar columnas auxiliares
+    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_lotes_input)
+    # Aseguramos columnas si no existen
     if 'Lotes_CamionA' not in df.columns: df['Lotes_CamionA'] = ""
     if 'Lotes_CamionB' not in df.columns: df['Lotes_CamionB'] = ""
-
-    df['Total_Asignados'] = df['Lotes_CamionA'].apply(safe_count) + df['Lotes_CamionB'].apply(safe_count)
     
-    # --- CORRECCIÓN CRÍTICA: MANEJO SEGURO DE NUMÉRICOS ---
-    # 1. Aseguramos que las columnas de KM individuales existan y sean números
-    for col in ['Km_CamionA', 'Km_CamionB']:
-        if col not in df.columns:
-            df[col] = 0.0
+    df['Total_Lotes_Asignados'] = df['Lotes_CamionA'].apply(safe_count_assigned) + df['Lotes_CamionB'].apply(safe_count_assigned)
+    
+    # Limpieza de números
+    for col in ['Km_CamionA', 'Km_CamionB', 'Km Totales']:
+        if col not in df.columns: df[col] = 0.0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    # 2. RECALCULAMOS 'Km Totales' SIEMPRE (Esto evita el KeyError si falta en el Excel)
-    df['Km Totales'] = df['Km_CamionA'] + df['Km_CamionB']
-    
-    # Ahora podemos agrupar sin miedo
+    df['Km_Total'] = df['Km Totales']
+
+    # 1. AGREGACIÓN DIARIA
     daily = df.groupby('Fecha').agg({
         'Fecha': 'count', 
-        'Total_Asignados': 'sum', 
-        'Km_CamionA': 'sum',  # Sumamos A
-        'Km_CamionB': 'sum',  # Sumamos B
-        'Km Totales': 'sum'   # Sumamos Totales
+        'Total_Lotes_Asignados': 'sum', 
+        'Km_CamionA': 'sum',
+        'Km_CamionB': 'sum',
+        'Km Totales': 'sum'
     }).rename(columns={
         'Fecha': 'Rutas_Total',
-        'Total_Asignados': 'Lotes_Asignados_Total',
+        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
         'Km_CamionA': 'Km_CamionA_Total',
         'Km_CamionB': 'Km_CamionB_Total',
         'Km Totales': 'Km_Total'
     }).reset_index()
     
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
-    
+    daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
+
+    # 2. AGREGACIÓN MENSUAL
     monthly = df.groupby('Mes').agg({
         'Fecha': 'count', 
-        'Total_Asignados': 'sum', 
+        'Total_Lotes_Asignados': 'sum', 
         'Km_CamionA': 'sum',
         'Km_CamionB': 'sum',
         'Km Totales': 'sum'
     }).rename(columns={
         'Fecha': 'Rutas_Total',
-        'Total_Asignados': 'Lotes_Asignados_Total',
+        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
         'Km_CamionA': 'Km_CamionA_Total',
         'Km_CamionB': 'Km_CamionB_Total',
         'Km Totales': 'Km_Total'
     }).reset_index()
     
     monthly['Mes_str'] = monthly['Mes'].astype(str)
+    monthly['Km_Promedio_Ruta'] = monthly['Km_Total'] / monthly['Rutas_Total']
+
     return daily, monthly
 
 # =============================================================================
@@ -271,7 +279,7 @@ if page == "Planificación Operativa":
                     ra = results.get('ruta_a', {})
                     rb = results.get('ruta_b', {})
                     
-                    # Calculamos totales seguros antes de guardar
+                    # Calculamos totales seguros
                     km_a = ra.get('distancia_km', 0)
                     km_b = rb.get('distancia_km', 0)
                     
@@ -283,7 +291,7 @@ if page == "Planificación Operativa":
                         "Lotes_CamionB": str(rb.get('lotes_asignados', [])),
                         "Km_CamionA": km_a,
                         "Km_CamionB": km_b,
-                        "Km Totales": km_a + km_b # Guardamos el total explícitamente
+                        "Km Totales": km_a + km_b
                     }
                     
                     save_new_route_to_sheet(new_entry)
@@ -324,7 +332,6 @@ if page == "Planificación Operativa":
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         json_data = json.dumps(ra.get('geojson_data', {}))
                         
-                        # Botones
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         
                         b1, b2 = st.columns(2)
@@ -354,7 +361,6 @@ if page == "Planificación Operativa":
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         json_data = json.dumps(rb.get('geojson_data', {}))
                         
-                        # Botones
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         
                         b1, b2 = st.columns(2)
@@ -392,7 +398,33 @@ elif page == "Indicadores de Gestión":
         day, month = calculate_statistics(df)
         
         st.subheader("Desempeño Diario")
-        st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
+        if not day.empty:
+            # --- TABLA RECUPERADA ---
+            columns_to_show = {
+                'Fecha_str': 'Fecha',
+                'Rutas_Total': 'Rutas Calculadas',
+                'Lotes_Asignados_Total': 'Lotes Asignados',
+                'Km_CamionA_Total': 'KM Camión A',
+                'Km_CamionB_Total': 'KM Camión B',
+                'Km_Total': 'KM Totales',
+                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            }
+
+            st.dataframe(
+                day[list(columns_to_show.keys())].rename(columns=columns_to_show),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
+                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
+                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
+                    'KM Promedio/Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
+                }
+            )
+            
+            # Gráfico
+            st.markdown("##### Kilómetros Totales Recorridos por Día")
+            st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
         
         st.subheader("Consolidado Mensual")
         st.dataframe(
