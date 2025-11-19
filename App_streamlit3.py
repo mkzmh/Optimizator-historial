@@ -562,31 +562,36 @@ elif page == "Monitoreo en Vivo":
         else:
             
             # --- 1. Carga del GeoJSON ---
-            # Asumimos que la clave 'geojson_data' se devuelve desde Routing_logic3
             geojson_data_str = ruta_a.get('geojson_data')
             if not geojson_data_str:
                 st.error("❌ La clave 'geojson_data' no está disponible en los resultados de la ruta A. Revise Routing_logic3.py.")
-                st.stop() # CORREGIDO: Usamos st.stop() en lugar de return
+                st.stop()
             
             try:
                 geojson_data = json.loads(geojson_data_str)
             except json.JSONDecodeError:
                 st.error("❌ El GeoJSON de la ruta A no es un JSON válido.")
-                st.stop() # CORREGIDO: Usamos st.stop()
+                st.stop()
             except Exception as e:
                 st.error(f"❌ Error al procesar el GeoJSON: {e}")
-                st.stop() # CORREGIDO: Usamos st.stop()
+                st.stop()
 
             # --- 2. Simulación de la Posición GPS ---
             
             # Extraer las coordenadas de la traza para simular el recorrido
             try:
-                # Se asume que la traza de la ruta es la lista de coordenadas principal
                 route_coordinates = geojson_data['features'][0]['geometry']['coordinates']
             except (KeyError, IndexError):
-                st.error("❌ El formato interno del GeoJSON no es el esperado (features[0].geometry.coordinates).")
-                st.stop() # CORREGIDO: Usamos st.stop()
-
+                st.error("❌ El formato interno del GeoJSON no es el esperado.")
+                st.stop()
+            
+            # CRÍTICO: Verificación de longitud de lista
+            if not route_coordinates or st.session_state.gps_index >= len(route_coordinates):
+                # Si la lista está vacía o el índice es inválido (aunque el reinicio debería atraparlo)
+                st.error("❌ La traza de la ruta GeoJSON está vacía o el índice de GPS es inválido.")
+                st.session_state.gps_index = 0 # Reiniciar el índice
+                st.stop()
+            
             # Avanzar la posición del camión simulado
             if st.session_state.gps_index >= len(route_coordinates) - 1:
                 # Reiniciar el recorrido al llegar al final
@@ -595,8 +600,15 @@ elif page == "Monitoreo en Vivo":
                 # Mover al siguiente punto
                 st.session_state.gps_index += 1
             
-            # La posición actual del camión simulado (lon, lat)
-            current_lon, current_lat = route_coordinates[st.session_state.gps_index]
+            # APLICAMOS LA CORRECCIÓN DE ROBUSTEZ AQUÍ:
+            current_coords = route_coordinates[st.session_state.gps_index]
+            
+            if not isinstance(current_coords, list) or len(current_coords) != 2:
+                st.error("❌ Error: La coordenada actual de la ruta no tiene el formato [lon, lat] esperado.")
+                st.stop()
+            
+            # Desempaquetar (GeoJSON es [lon, lat])
+            current_lon, current_lat = current_coords
             
             # --- 3. Creación del Mapa Folium ---
             
