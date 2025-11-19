@@ -231,7 +231,7 @@ if page == "Planificación Operativa":
         st.warning(f"⚠️ **Atención:** El sistema no reconoce estos códigos: {', '.join(invalid_stops)}")
 
     if valid_stops:
-        with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
+        with st.expander("🗺️ Ver Mapa de Lotes", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
             for l in valid_stops:
                 coords = COORDENADAS_LOTES[l]
@@ -242,7 +242,7 @@ if page == "Planificación Operativa":
     
     col_btn, _ = st.columns([1, 3])
     with col_btn:
-        calculate = st.button("Ejecutar Algoritmo", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
+        calculate = st.button("Calcular optimización", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
 
     if calculate:
         with st.spinner("Calculando distribución óptima de carga..."):
@@ -381,3 +381,4 @@ elif page == "Estadísticas":
             )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
+
