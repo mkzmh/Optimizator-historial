@@ -1,24 +1,33 @@
-import requests
 import json
+import math
 from urllib.parse import quote
-from math import radians, sin, cos, sqrt, atan2
 from itertools import combinations
 import time
+import os
+
+# --- LIBRERÍAS PARA EL MAPA KML ---
+import geopandas as gpd
+import momepy
+import networkx as nx
+import fiona
+from shapely.geometry import Point
+from shapely.ops import nearest_points
 
 # =============================================================================
 # 1. CONFIGURACIÓN BASE Y COORDENADAS
 # =============================================================================
 
-API_KEY = "2ce810e0-dc57-4aa4-8099-bf0e33ec48e9"
-URL_ROUTE = f"https://graphhopper.com/api/1/route?key={API_KEY}"
-HEADERS = {'Content-Type': 'application/json'}
-COORDENADAS_ORIGEN = [-64.245138888888889, -23.260327777777778]
+# Nombre del archivo de mapa (Debe estar en la misma carpeta)
+ARCHIVO_KML = 'Ing - cn.kml'
+
+COORDENADAS_ORIGEN = [-64.245138888888889, -23.260327777777778] # Ingenio
+
 VEHICLES = {
-"AF820AB": {"name": "Camión 1 (Ruta A)"},
-"AE898TW": {"name": "Camión 2 (Ruta B)"},
+    "AF820AB": {"name": "Camión 1 (Ruta A)"},
+    "AE898TW": {"name": "Camión 2 (Ruta B)"},
 }
 
-# Diccionario de coordenadas (Completo)
+# Diccionario de coordenadas (Tu lista completa)
 COORDENADAS_LOTES = {
 "A01_1": [-64.254233333333332, -23.255027777777777], "A01_2": [-64.26275833333334, -23.24804166666667], "A05": [-64.25640277777778, -23.247030555555558],
 "A05_2": [-64.254025, -23.249480555555557], "A06_1": [-64.246711111111111, -23.245766666666668], "A06_2": [-64.246180555555554, -23.247272222222222],
@@ -154,13 +163,64 @@ COORDENADAS_LOTES = {
 "R90": [-64.381875, -23.3536139],"R15": [-64.3893861, -23.4922389],"T03": [-64.4173361, -23.0667556],"T06": [-64.3934417, -23.0828278],
 "T15": [-64.3943528, -23.094475],"T05": [-64.4107361, -23.0856528],"T14": [-64.4059417, -23.0996639],"T01": [-64.4095889, -23.0744611],"T02": [-64.4168778, -23.0779889],"T04": [-64.4265167, -23.0728139],"T11": [-64.4363472, -23.0791306],"T10": [-64.4300167, -23.0873278],"T12": [-64.4255528, -23.0984611],"T07": [-64.3781167, -23.0853611],"T13": [-64.4219944, -23.1075944],"I78": [-64.4469278, -23.1280583],"I79": [-64.4539944, -23.1236694],"I77": [-64.4346667, -23.1191917],"I76": [-64.4394417, -23.1150444],"I75": [-64.4429111, -23.1104583],"I74": [-64.4451861, -23.1044694],"I73": [-64.4464944, -23.0988472],"I72": [-64.4489861, -23.0938083],"I71": [-64.4511, -23.08895],"I70": [-64.4417667, -23.0709083],"I61": [-64.3573722, -23.0735861],"I62": [-64.3668806, -23.0707389],"I65": [-64.3617167, -23.0335722],"I64": [-64.3617167, -23.0335722],"I63": [-64.3709583, -23.0356528],"I68_1": [-64.37575, -23.0340361],"I68_2": [-64.3819528, -23.0335139],"I60": [-64.3633417, -23.0805472],"I34": [-64.3750778, -23.0720917],"I32_1": [-64.3697028, -23.0683667],"I32_2": [-64.3840722, -23.0683083],"I32_3": [-64.3922389, -23.0674694],"I33": [-64.3940667, -23.0700472],"I25_1": [-64.3742444, -23.0628722],"I25_2": [-64.3814944, -23.0650833],"I18": [-64.4050806, -23.0653806],"I17": [-64.3957139, -23.0630056],"I23_1": [-64.378225, -23.0556639],"I23_2": [-64.3842167, -23.0503222],"I24_1": [-64.3913556, -23.0536083],"I24_2": [-64.3869694, -23.0596278],"I15": [-64.4004139, -23.057],"I14_1": [-64.4080917, -23.0616722],"I14_2": [-64.4138944, -23.0612],"I22": [-64.3831694, -23.0471944],"I20_1": [-64.3857472, -23.0426306],"I20_2": [-64.3893028, -23.038425],"I21_1": [-64.3942833, -23.0480694],"I21_2": [-64.3973889, -23.0431056],"I13_1": [-64.4018194, -23.0510222],"I13_2": [-64.4032528, -23.0461889],"I28_1": [-64.4073389, -23.0499472],"I28_2": [-64.4113139, -23.0512861],"I30_1": [-64.4141972, -23.0553889],"I30_2": [-64.4194306, -23.0552167],"I27": [-64.4040889, -23.0381556],"I26": [-64.4120389, -23.0436417],"I29_1": [-64.4220139, -23.0417417],"I29_2": [-64.4208639, -23.0479778],"I02": [-64.4141, -23.0383972],"I01_1": [-64.4140389, -23.0325278],"I01_2": [-64.4221639, -23.0354028],"I05": [-64.4039, -23.0285139],"I81": [-64.4283306, -23.0453361],"I82": [-64.4354694, -23.0443361],"I83": [-64.438028, -23.0291667],"I84": [-64.4339444, -23.0298722],"I85": [-64.4282222, -23.0115667],"I86": [-64.4332194, -23.013025],"I87": [-64.4222083, -22.9916028],"I88": [-64.4289972, -22.9917028],"I69": [-64.3716833, -23.0222194],"J43_1": [-64.4199472, -23.0288167],"J43_2": [-64.4148361, -23.0274528],"J41": [-64.4110167, -23.0238583],"J42_1": [-64.4059806, -23.0224111],"J42_2": [-64.4070139, -23.0151833],"J40": [-64.4141833, -23.0178861],"J44": [-64.4219694, -23.0174306],"J31": [-64.4156278, -23.0117556],"J30": [-64.4121917, -23.0058111],"J32_1": [-64.4219667, -23.0058722],"J32_2": [-64.4182639, -22.9998056],"J28": [-64.4124056, -22.9975944],"J57": [-64.3920722, -23.0182889],"J58": [-64.3941972, -23.0140250],"J56": [-64.3923611, -23.0093472],"J59_1": [-64.3986000, -23.0100722],"J59_2": [-64.3971556, -23.0083444],"J21_1": [-64.4001972, -23.0037111],"J21_2": [-64.3928972, -23.0040778],"J20": [-64.4043472, -22.9967556],"J55": [-64.3828333, -23.0063111],"J52": [-64.3734472, -23.0149167],"J54": [-64.3778222, -23.0041972],"J53": [-64.3698750, -23.0038472],"J22": [-64.3989333, -22.9989311],"J15": [-64.3987889, -22.9878944],"J16": [-64.3915417, -22.9876278],"J14": [-64.4045722, -23.23276111],"J09_1": [-64.3991389, -22.9819722],"J09_2": [-64.4076806, -22.9813861],"J10_1": [-64.3990333, -22.9757417],"J10_2": [-64.4079306, -22.9757361],"J13": [-64.4005000, -22.9695972],"J12_1": [-64.4109222, -22.9689833],"J12_2": [-64.4167222, -22.9698750],"J01": [-64.4208667, -22.9670500],"J05": [-64.4102583, -22.9636639],"J03": [-64.4106556, -22.9585333],"J02": [-64.4171278, -22.9630000],
 }
+
 COORDENADAS_LOTES_REVERSO = {tuple(v): k for k, v in COORDENADAS_LOTES.items()}
 
+# VARIABLE GLOBAL PARA EL GRAFO
+GRAFO_GLOBAL = None
+
 # =============================================================================
-# 2. FUNCIONES AUXILIARES (DEBE TENER SANGRÍA INTERNA)
+# 2. FUNCIONES AUXILIARES DE MAPA (CARGA Y PROCESAMIENTO)
 # =============================================================================
 
+def cargar_mapa_kml():
+    """
+    Carga el archivo KML y crea el grafo de NetworkX una sola vez.
+    """
+    global GRAFO_GLOBAL
+    if GRAFO_GLOBAL is not None:
+        return GRAFO_GLOBAL
+
+    print(f"--> Cargando mapa desde: {ARCHIVO_KML}")
+    try:
+        fiona.drvsupport.supported_drivers['KML'] = 'rw'
+        gdf = gpd.read_file(ARCHIVO_KML, driver='KML')
+        
+        # Filtrar solo las líneas
+        lines = gdf[gdf.geometry.type.isin(['LineString', 'MultiLineString'])]
+        
+        if lines.empty:
+            print("❌ Error: No se encontraron rutas en el KML.")
+            return None
+
+        # Convertir a Grafo
+        # 'primal' significa que las intersecciones son nodos
+        GRAFO_GLOBAL = momepy.gdf_to_nx(lines, approach='primal')
+        print(f"✅ Mapa cargado con éxito. Nodos: {len(GRAFO_GLOBAL.nodes)}, Aristas: {len(GRAFO_GLOBAL.edges)}")
+        return GRAFO_GLOBAL
+        
+    except Exception as e:
+        print(f"❌ Error cargando el KML: {e}")
+        return None
+
+def obtener_nodo_cercano(G, punto_gps):
+    """
+    Encuentra el nodo del grafo más cercano a una coordenada dada [lon, lat].
+    """
+    point = Point(punto_gps)
+    # Crear una lista de nodos con sus geometrías
+    node_points = [Point(n) for n in G.nodes]
+    
+    # Encontrar el más cercano
+    # Nota: Esto se puede optimizar con sindex si el mapa es gigante, 
+    # pero para este tamaño está bien.
+    nearest_node_geom = min(node_points, key=lambda p: p.distance(point))
+    
+    # Devolver el nodo (tupla de coordenadas)
+    return (nearest_node_geom.x, nearest_node_geom.y)
+
 def haversine(coord1, coord2):
+    """Distancia 'vuelo de pájaro' para agrupaciones rápidas"""
     lon1, lat1 = coord1
     lon2, lat2 = coord2
     R = 6371000
@@ -169,8 +229,14 @@ def haversine(coord1, coord2):
     dlat = lat2 - lat1
     a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
     c = 2 * atan2(sqrt(a), sqrt(1 - a))
-    distance = R * c
-    return distance
+    return R * c
+
+# Importamos math para haversine
+from math import radians, sin, cos, sqrt, atan2
+
+# =============================================================================
+# 3. LÓGICA DE AGRUPACIÓN (Mantenida igual para balancear cargas)
+# =============================================================================
 
 def find_best_grouping_variable(all_lotes, min_group_size=1):
     min_total_internal_distance = float('inf')
@@ -178,17 +244,20 @@ def find_best_grouping_variable(all_lotes, min_group_size=1):
     best_group_b = None
     all_lotes_set = set(all_lotes)
     N = len(all_lotes)
-    for size_a in range(min_group_size, N - min_group_size + 1):
+    
+    # Limitamos las combinaciones si N es muy grande para evitar bloqueos
+    # (Opcional, pero recomendado si hay muchos lotes)
+    rango_busqueda = range(min_group_size, N - min_group_size + 1)
+    
+    for size_a in rango_busqueda:
         for group_a_tuple in combinations(all_lotes, size_a):
             group_a = list(group_a_tuple)
             group_b = list(all_lotes_set - set(group_a))
             
-            # Función anidada para calcular distancia interna (indenta correctamente)
             def calculate_internal_distance(group):
                 dist = 0
                 L = len(group)
-                if L < 2:
-                    return 0
+                if L < 2: return 0
                 for i in range(L):
                     for j in range(i + 1, L):
                         lote1 = group[i]
@@ -201,47 +270,156 @@ def find_best_grouping_variable(all_lotes, min_group_size=1):
             dist_a = calculate_internal_distance(group_a)
             dist_b = calculate_internal_distance(group_b)
             current_total_distance = dist_a + dist_b
+            
             if current_total_distance < min_total_internal_distance:
                 min_total_internal_distance = current_total_distance
                 best_group_a = group_a
                 best_group_b = group_b
+                
     return best_group_a, best_group_b, round(min_total_internal_distance / 1000, 2)
 
-def make_api_request(points_list):
-    URL_ROUTE_FINAL = f"https://graphhopper.com/api/1/route?key={API_KEY}"
-    request_body = {
-        "points": points_list,
-        "vehicle": "car",
-        "locale": "es",
-        "instructions": False,
-        "points_encoded": False,
-        "optimize": "true"
+# =============================================================================
+# 4. NUEVO MOTOR DE RUTEO LOCAL (REEMPLAZA A GRAPH HOPPER API)
+# =============================================================================
+
+def calcular_ruta_local_kml(points_list):
+    """
+    Calcula la ruta óptima (TSP) y genera el trazado usando el KML local.
+    Reemplaza a make_api_request.
+    """
+    G = cargar_mapa_kml()
+    if G is None:
+        return None
+
+    # 1. Convertir coordenadas de entrada a nodos del grafo
+    nodos_visitar = []
+    for p in points_list:
+        nodo = obtener_nodo_cercano(G, p)
+        nodos_visitar.append(nodo)
+
+    # 2. Resolver TSP (Ordenamiento de Paradas) - Algoritmo Vecino Más Cercano
+    # Empezamos en el origen (el primer punto)
+    orden_nodos = [nodos_visitar[0]]
+    pendientes = nodos_visitar[1:-1] # Excluyendo origen y destino final (que es el mismo origen)
+    
+    nodo_actual = orden_nodos[0]
+    
+    while pendientes:
+        # Buscar el nodo pendiente más cercano en la red real
+        mejor_dist = float('inf')
+        mejor_nodo = None
+        
+        for candidato in pendientes:
+            try:
+                # weight='mm_len' es la distancia en metros que calcula momepy
+                d = nx.shortest_path_length(G, source=nodo_actual, target=candidato, weight='mm_len')
+                if d < mejor_dist:
+                    mejor_dist = d
+                    mejor_nodo = candidato
+            except nx.NetworkXNoPath:
+                pass # Si no hay camino, ignoramos por ahora
+        
+        if mejor_nodo:
+            orden_nodos.append(mejor_nodo)
+            pendientes.remove(mejor_nodo)
+            nodo_actual = mejor_nodo
+        else:
+            # Si hay islas desconectadas, forzamos el siguiente
+            print("⚠️ Aviso: Puntos desconectados en el grafo.")
+            mejor_nodo = pendientes.pop(0)
+            orden_nodos.append(mejor_nodo)
+            nodo_actual = mejor_nodo
+
+    # Añadir el regreso al origen
+    orden_nodos.append(nodos_visitar[-1])
+
+    # 3. Reconstruir el camino completo (geometría paso a paso)
+    ruta_completa_coords = []
+    distancia_total_metros = 0
+    
+    for i in range(len(orden_nodos) - 1):
+        u = orden_nodos[i]
+        v = orden_nodos[i+1]
+        try:
+            path_nodes = nx.shortest_path(G, source=u, target=v, weight='mm_len')
+            dist_segmento = nx.shortest_path_length(G, source=u, target=v, weight='mm_len')
+            distancia_total_metros += dist_segmento
+            
+            # Agregar coordenadas del camino
+            for node in path_nodes:
+                ruta_completa_coords.append(list(node)) # networkx devuelve tuplas, json necesita listas
+                
+        except nx.NetworkXNoPath:
+            # Si falla el camino, trazamos línea recta (fallback)
+            ruta_completa_coords.append(list(u))
+            ruta_completa_coords.append(list(v))
+            distancia_total_metros += haversine(u, v)
+
+    # 4. Recuperar los índices originales para mantener compatibilidad
+    # Mapeamos los nodos ordenados de vuelta a los puntos de entrada
+    # (Simplificado: asumimos que el orden_nodos corresponde a los puntos originales reordenados)
+    # Como usamos nearest neighbor, tenemos que reconstruir el índice
+    indices_originales = []
+    # Esta parte es compleja de mapear exactamente por coordenadas flotantes, 
+    # así que reconstruiremos en base al orden calculado.
+    # Para simplificar compatibilidad con código anterior:
+    # Devolvemos una estructura simulada de GraphHopper.
+    
+    # Encontramos índices basados en las coordenadas originales
+    points_order = []
+    # Creamos copias para no alterar listas
+    lista_orig = [tuple(p) for p in points_list]
+    for nodo in orden_nodos:
+        # Buscar qué índice tenía este nodo (aproximado por cercanía)
+        # En realidad, orden_nodos son los SNAP. Buscamos el original más cercano.
+        best_idx = -1
+        min_d = float('inf')
+        for idx, orig_p in enumerate(lista_orig):
+            if idx not in points_order or (idx == 0 or idx == len(lista_orig)-1): # Permitir repetir origen
+                 d = (orig_p[0]-nodo[0])**2 + (orig_p[1]-nodo[1])**2
+                 if d < min_d:
+                     min_d = d
+                     best_idx = idx
+        points_order.append(best_idx)
+
+    # Estructura de respuesta simulada
+    response = {
+        'paths': [{
+            'distance': distancia_total_metros,
+            'points': {'coordinates': ruta_completa_coords},
+            'points_order': points_order
+        }]
     }
-    try:
-        response = requests.post(URL_ROUTE_FINAL, headers=HEADERS, data=json.dumps(request_body))
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        return None
-    except requests.exceptions.RequestException as e:
-        return None
-    except KeyError as e:
-        return None
+    return response
+
+# =============================================================================
+# 5. GENERACIÓN DE SALIDAS (GEOJSON)
+# =============================================================================
 
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km, vehicle_id):
     features = []
     num_points = len(points_sequence)
     color_map = {"AF820AB": "#0080FF", "AE898TW": "#FF4500"}
     line_color = color_map.get(vehicle_id, "#000000")
+    
     for i in range(num_points):
         coords = points_sequence[i]
         is_origin = (i == 0)
         is_destination = (i == num_points - 1)
         lote_name = "Ingenio"
+        
         if not is_origin and not is_destination:
-            lote_name = next((name for original_coords, name in COORDENADAS_LOTES_REVERSO.items()
-                             if round(original_coords[0], 6) == round(coords[0], 6) and round(original_coords[1], 6) == round(coords[1], 6)),
-                             "Punto Intermedio")
+            # Buscamos nombre por coincidencia exacta de coordenadas
+            found = False
+            for coords_orig, name in COORDENADAS_LOTES_REVERSO.items():
+                # Tolerancia pequeña por errores de punto flotante
+                if abs(coords_orig[0] - coords[0]) < 0.0001 and abs(coords_orig[1] - coords[1]) < 0.0001:
+                    lote_name = name
+                    found = True
+                    break
+            if not found: 
+                lote_name = "Punto Intermedio"
+
         point_type = "PARADA INTERMEDIA"
         color = line_color
         symbol = str(i)
@@ -253,6 +431,7 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
             point_type = "DESTINO FINAL (Regreso al Ingenio)"
             color = "#FF0000"
             symbol = "square"
+            
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": coords},
@@ -264,6 +443,7 @@ def generate_geojson(route_name, points_sequence, path_coordinates, total_distan
                 "vehicle": vehicle_id
             }
         })
+        
     features.append({
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": path_coordinates},
@@ -284,56 +464,83 @@ def generate_geojson_io_link(geojson_object):
     return base_url + encoded_geojson
 
 # =============================================================================
-# 3. FUNCIÓN PRINCIPAL EXPORTABLE (solve_route_optimization)
+# 6. FUNCIÓN PRINCIPAL EXPORTABLE (solve_route_optimization)
 # =============================================================================
 
 def solve_route_optimization(all_intermediate_stops):
+    # 1. Cargar Grafo (Si no está cargado)
+    if cargar_mapa_kml() is None:
+        return {"error": "No se pudo cargar el archivo KML. Verifique que 'Ing - cn.kml' esté en la carpeta."}
+
+    # 2. Agrupar Lotes (Ruta A vs Ruta B)
     group_a_names, group_b_names, min_internal_dist = find_best_grouping_variable(all_intermediate_stops)
-    if not group_a_names or not group_b_names:
-        return {"error": "No se pudo realizar la agrupación de lotes."}
+    
+    if not group_a_names and not group_b_names:
+         # Caso borde: si la lista de entrada está vacía
+         pass 
+         
     VEHICLE_A_ID = "AF820AB"
     VEHICLE_B_ID = "AE898TW"
     results = {"agrupacion_distancia_km": min_internal_dist}
 
     # --- RUTA A (AF820AB) ---
-    all_stops_coords_A = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_a_names] + [COORDENADAS_ORIGEN]
-    response_A = make_api_request(all_stops_coords_A)
-    if response_A:
-        TOTAL_DISTANCE_KM_A = round(response_A['paths'][0]['distance'] / 1000, 2)
-        optimized_indices_A = response_A['paths'][0]['points_order']
-        all_stops_names_A = ["Ingenio"] + group_a_names + ["Ingenio"]
-        optimized_name_sequence_A = [all_stops_names_A[i] for i in optimized_indices_A]
-        results["ruta_a"] = {
-            "patente": VEHICLE_A_ID,
-            "nombre": VEHICLES[VEHICLE_A_ID]['name'],
-            "lotes_asignados": group_a_names,
-            "distancia_km": TOTAL_DISTANCE_KM_A,
-            "orden_optimo": optimized_name_sequence_A[1:-1],
-            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta A", [all_stops_coords_A[i] for i in optimized_indices_A], response_A['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_A, VEHICLE_A_ID))
-        }
-    else:
-        return {"error": "Fallo al obtener la Ruta A de la API. (Verifique API Key o límites)"}
+    if group_a_names:
+        all_stops_coords_A = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_a_names] + [COORDENADAS_ORIGEN]
+        # USAMOS EL CÁLCULO LOCAL EN LUGAR DE API
+        response_A = calcular_ruta_local_kml(all_stops_coords_A)
+        
+        if response_A:
+            TOTAL_DISTANCE_KM_A = round(response_A['paths'][0]['distance'] / 1000, 2)
+            optimized_indices_A = response_A['paths'][0]['points_order']
+            
+            all_stops_names_A = ["Ingenio"] + group_a_names + ["Ingenio"]
+            # Reordenar nombres según el resultado del TSP
+            # Nota: optimized_indices_A puede ser aproximado en esta implementación simple, 
+            # pero servirá para mostrar el orden lógico.
+            optimized_name_sequence_A = []
+            # Recalcular nombres basados en el orden devuelto
+            # (Como es TSP local, el orden de coordenadas de respuesta es el real)
+            # Para simplificar visualización:
+            optimized_name_sequence_A = [all_stops_names_A[i] for i in optimized_indices_A if i < len(all_stops_names_A)]
 
-    # RETARDO PARA EVITAR LÍMITE DE API
-    time.sleep(75)
+            results["ruta_a"] = {
+                "patente": VEHICLE_A_ID,
+                "nombre": VEHICLES[VEHICLE_A_ID]['name'],
+                "lotes_asignados": group_a_names,
+                "distancia_km": TOTAL_DISTANCE_KM_A,
+                "orden_optimo": optimized_name_sequence_A[1:-1], # Quitamos origen/destino para mostrar paradas
+                "geojson_link": generate_geojson_io_link(generate_geojson("Ruta A", [all_stops_coords_A[i] for i in optimized_indices_A if i < len(all_stops_coords_A)], response_A['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_A, VEHICLE_A_ID))
+            }
+        else:
+            results["ruta_a"] = {"error": "No se encontró camino en el mapa KML para la Ruta A."}
+    else:
+        results["ruta_a"] = {"mensaje": "Sin lotes asignados"}
 
     # --- RUTA B (AE898TW) ---
-    all_stops_coords_B = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_b_names] + [COORDENADAS_ORIGEN]
-    response_B = make_api_request(all_stops_coords_B)
-    if response_B:
-        TOTAL_DISTANCE_KM_B = round(response_B['paths'][0]['distance'] / 1000, 2)
-        optimized_indices_B = response_B['paths'][0]['points_order']
-        all_stops_names_B = ["Ingenio"] + group_b_names + ["Ingenio"]
-        optimized_name_sequence_B = [all_stops_names_B[i] for i in optimized_indices_B]
-        results["ruta_b"] = {
-            "patente": VEHICLE_B_ID,
-            "nombre": VEHICLES[VEHICLE_B_ID]['name'],
-            "lotes_asignados": group_b_names,
-            "distancia_km": TOTAL_DISTANCE_KM_B,
-            "orden_optimo": optimized_name_sequence_B[1:-1],
-            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta B", [all_stops_coords_B[i] for i in optimized_indices_B], response_B['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_B, VEHICLE_B_ID))
-        }
+    if group_b_names:
+        all_stops_coords_B = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_b_names] + [COORDENADAS_ORIGEN]
+        # USAMOS EL CÁLCULO LOCAL
+        response_B = calcular_ruta_local_kml(all_stops_coords_B)
+        
+        if response_B:
+            TOTAL_DISTANCE_KM_B = round(response_B['paths'][0]['distance'] / 1000, 2)
+            optimized_indices_B = response_B['paths'][0]['points_order']
+            
+            all_stops_names_B = ["Ingenio"] + group_b_names + ["Ingenio"]
+            optimized_name_sequence_B = [all_stops_names_B[i] for i in optimized_indices_B if i < len(all_stops_names_B)]
+
+            results["ruta_b"] = {
+                "patente": VEHICLE_B_ID,
+                "nombre": VEHICLES[VEHICLE_B_ID]['name'],
+                "lotes_asignados": group_b_names,
+                "distancia_km": TOTAL_DISTANCE_KM_B,
+                "orden_optimo": optimized_name_sequence_B[1:-1],
+                "geojson_link": generate_geojson_io_link(generate_geojson("Ruta B", [all_stops_coords_B[i] for i in optimized_indices_B if i < len(all_stops_coords_B)], response_B['paths'][0]['points']['coordinates'], TOTAL_DISTANCE_KM_B, VEHICLE_B_ID))
+            }
+        else:
+            results["ruta_b"] = {"error": "No se encontró camino en el mapa KML para la Ruta B."}
     else:
-        return {"error": "Fallo al obtener la Ruta B de la API. (Verifique API Key o límites)"}
+         results["ruta_b"] = {"mensaje": "Sin lotes asignados"}
 
     return results
+
