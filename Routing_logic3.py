@@ -213,7 +213,7 @@ def make_api_request(points_list):
         "points": points_list,
         "vehicle": "car",
         "locale": "es",
-        "instructions": False,
+        "instructions": True,
         "points_encoded": False,
         "optimize": "true"
     }
@@ -337,3 +337,4 @@ def solve_route_optimization(all_intermediate_stops):
         return {"error": "Fallo al obtener la Ruta B de la API. (Verifique API Key o límites)"}
 
     return results
+
