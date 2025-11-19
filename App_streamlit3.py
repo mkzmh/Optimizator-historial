@@ -17,7 +17,7 @@ from Routing_logic3 import (
 )
 
 # =============================================================================
-# 2. CONFIGURACIÓN E INTERFAZ CORPORATIVA
+# 2. CONFIGURACIÓN E INTERFAZ (CSS BLINDADO)
 # =============================================================================
 
 st.set_page_config(
@@ -29,13 +29,13 @@ st.set_page_config(
 
 ARG_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
-# CSS PROFESIONAL
+# CSS REFORZADO PARA ELIMINAR EL ROJO
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Tarjetas de Métricas */
+    /* Tarjetas */
     div[data-testid="stMetric"] {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -44,20 +44,36 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Botones Primarios (Azul Corporativo) */
-    div.stButton > button:first-child {
-        background-color: #003366;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 0.6rem 1.2rem;
-        font-weight: 600;
-        font-size: 14px;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #002244;
+    /* --- BOTONES PRIMARIOS (AZUL OBLIGATORIO) --- */
+    /* Esto afecta a st.button(type="primary") y st.link_button(type="primary") */
+    button[kind="primary"], a[kind="primary"] {
+        background-color: #003366 !important;
+        color: #ffffff !important;
+        border: none !important;
+        transition: all 0.3s ease !important;
     }
     
+    /* Hover del botón primario */
+    button[kind="primary"]:hover, a[kind="primary"]:hover {
+        background-color: #002244 !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+    }
+    
+    /* --- BOTONES SECUNDARIOS (BLANCO/GRIS) --- */
+    /* Esto afecta a los botones normales */
+    button[kind="secondary"], a[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #003366 !important;
+        border: 1px solid #003366 !important;
+    }
+    
+    button[kind="secondary"]:hover, a[kind="secondary"]:hover {
+        background-color: #f0f8ff !important; /* Azul muy clarito al pasar el mouse */
+        border-color: #002244 !important;
+        color: #002244 !important;
+    }
+
     /* Sidebar */
     [data-testid="stSidebar"] {
         background-color: #f8f9fa;
@@ -73,17 +89,14 @@ COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB",
 # =============================================================================
 
 def generate_gmaps_link(stops_order_names):
-    """Genera el link oficial de navegación de Google Maps"""
     if not stops_order_names: return '#'
     lat_orig, lon_orig = COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]
     origin_str = f"{lat_orig},{lon_orig}"
-    
     waypoints = []
     for lote_nombre in stops_order_names:
         if lote_nombre in COORDENADAS_LOTES:
             lon, lat = COORDENADAS_LOTES[lote_nombre]
             waypoints.append(f"{lat},{lon}")
-            
     base_url = "https://www.google.com/maps/dir/"
     route_path = "/".join([origin_str] + waypoints + [origin_str])
     return base_url + route_path
@@ -134,76 +147,58 @@ def get_history_data():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
 
-# --- FUNCIÓN DE ESTADÍSTICAS CORREGIDA (AQUÍ ESTABA EL ERROR) ---
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
-    
-    # Limpieza de Fechas
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
     df['Mes'] = df['Fecha'].dt.to_period('M')
 
-    # Funciones de conteo
-    def count_lotes_input(x):
-        try: return len(str(x).split(',')) if x else 0
-        except: return 0
-
-    def safe_count_assigned(x):
+    def safe_count(x):
         try:
             s = str(x).replace('[','').replace(']','').replace("'", "")
             return len([i for i in s.split(',') if i.strip()])
         except: return 0
 
-    # Cálculos de Lotes
-    df['Total_Lotes_Ingresados'] = df['LotesIngresados'].apply(count_lotes_input)
-    
-    # Aseguramos que las columnas existan
     if 'Lotes_CamionA' not in df.columns: df['Lotes_CamionA'] = ""
     if 'Lotes_CamionB' not in df.columns: df['Lotes_CamionB'] = ""
     
-    df['Total_Lotes_Asignados'] = df['Lotes_CamionA'].apply(safe_count_assigned) + df['Lotes_CamionB'].apply(safe_count_assigned)
+    df['Total_Asignados'] = df['Lotes_CamionA'].apply(safe_count) + df['Lotes_CamionB'].apply(safe_count)
     
-    # --- CORRECCIÓN CLAVE: Calcular Totales Internamente ---
-    # Convertimos a números forzados (NaN -> 0.0)
-    for col in ['Km_CamionA', 'Km_CamionB']:
+    for col in ['Km_CamionA', 'Km_CamionB', 'Km Totales']:
         if col not in df.columns: df[col] = 0.0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    # Calculamos el total NOSOTROS mismos para evitar el KeyError si falta en el Excel
-    df['Km_Total_Calc'] = df['Km_CamionA'] + df['Km_CamionB']
+    df['Km_Total'] = df['Km Totales'] # Usamos la columna del Excel o la calculada
 
-    # 1. AGREGACIÓN DIARIA
-    # Usamos 'Km_Total_Calc' que acabamos de crear y es seguro
     daily = df.groupby('Fecha').agg({
         'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
+        'Total_Asignados': 'sum', 
         'Km_CamionA': 'sum',
         'Km_CamionB': 'sum',
-        'Km_Total_Calc': 'sum'
+        'Km_Total': 'sum'
     }).rename(columns={
         'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
+        'Total_Asignados': 'Lotes_Asignados_Total',
         'Km_CamionA': 'Km_CamionA_Total',
         'Km_CamionB': 'Km_CamionB_Total',
-        'Km_Total_Calc': 'Km_Total' # Aquí le ponemos el nombre final
+        'Km_Total': 'Km_Total'
     }).reset_index()
     
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
     daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
 
-    # 2. AGREGACIÓN MENSUAL
     monthly = df.groupby('Mes').agg({
         'Fecha': 'count', 
-        'Total_Lotes_Asignados': 'sum', 
+        'Total_Asignados': 'sum', 
         'Km_CamionA': 'sum',
         'Km_CamionB': 'sum',
-        'Km_Total_Calc': 'sum'
+        'Km_Total': 'sum'
     }).rename(columns={
         'Fecha': 'Rutas_Total',
-        'Total_Lotes_Asignados': 'Lotes_Asignados_Total',
+        'Total_Asignados': 'Lotes_Asignados_Total',
         'Km_CamionA': 'Km_CamionA_Total',
         'Km_CamionB': 'Km_CamionB_Total',
-        'Km_Total_Calc': 'Km_Total'
+        'Km_Total': 'Km_Total'
     }).reset_index()
     
     monthly['Mes_str'] = monthly['Mes'].astype(str)
@@ -241,6 +236,7 @@ if page == "Planificación Operativa":
     
     st.markdown("---")
     
+    # Input
     lotes_input = st.text_input("Ingreso de Lotes", placeholder="Ingrese códigos separados por coma (Ej: A05, B10, C95)")
     
     all_stops = [l.strip().upper() for l in lotes_input.split(',') if l.strip()]
@@ -255,6 +251,7 @@ if page == "Planificación Operativa":
     elif valid_stops:
         c2.success("Todos los lotes son válidos.")
 
+    # MAPA DESPLEGABLE
     if valid_stops:
         with st.expander("🗺️ Ver Mapa de Lotes (Desplegar)", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
@@ -265,6 +262,7 @@ if page == "Planificación Operativa":
 
     st.markdown("---")
     
+    # BOTÓN DE CÁLCULO (AZUL FORZADO)
     col_btn, _ = st.columns([1, 3])
     with col_btn:
         calculate = st.button("Ejecutar Algoritmo", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
@@ -293,13 +291,13 @@ if page == "Planificación Operativa":
                         "Km_CamionB": km_b,
                         "Km Totales": km_a + km_b
                     }
-                    
                     save_new_route_to_sheet(new_entry)
                     st.session_state.historial_rutas.append(new_entry)
                     st.success("Planificación completada y guardada.")
             except Exception as e:
                 st.error(f"Error crítico: {e}")
 
+    # RESULTADOS
     if st.session_state.results:
         res = st.session_state.results
         if "error" in res:
@@ -308,11 +306,13 @@ if page == "Planificación Operativa":
             st.markdown("### Resultados de la Planificación")
             col_a, col_b = st.columns(2)
 
+            # UNIDAD A
             with col_a:
                 ra = res.get('ruta_a', {})
                 with st.container(border=True):
                     st.markdown(f"#### 🚛 {ra.get('nombre', 'Unidad A')}")
                     st.caption(f"Patente: {ra.get('patente', 'N/A')}")
+                    
                     if ra.get('mensaje'):
                         st.info("Sin asignación de lotes.")
                     else:
@@ -324,17 +324,21 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + ra.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
+                        # DATOS
                         link_geo = ra.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         
+                        # BOTONES (AZUL Y GRIS)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
+            # UNIDAD B
             with col_b:
                 rb = res.get('ruta_b', {})
                 with st.container(border=True):
                     st.markdown(f"#### 🚛 {rb.get('nombre', 'Unidad B')}")
                     st.caption(f"Patente: {rb.get('patente', 'N/A')}")
+                    
                     if rb.get('mensaje'):
                         st.info("Sin asignación de lotes.")
                     else:
@@ -346,9 +350,11 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + rb.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
+                        # DATOS
                         link_geo = rb.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         
+                        # BOTONES (AZUL Y GRIS)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
@@ -384,31 +390,15 @@ elif page == "Indicadores de Gestión":
         
         st.subheader("Desempeño Diario")
         if not day.empty:
-            # TABLA DE RESUMEN DIARIO
-            columns_to_show = {
-                'Fecha_str': 'Fecha',
-                'Rutas_Total': 'Rutas Calculadas',
-                'Lotes_Asignados_Total': 'Lotes Asignados',
-                'Km_CamionA_Total': 'KM Camión A',
-                'Km_CamionB_Total': 'KM Camión B',
-                'Km_Total': 'KM Totales',
-                'Km_Promedio_Ruta': 'KM Promedio por Ruta'
+            # Tabla Detallada
+            cols_show = {
+                'Fecha_str': 'Fecha', 'Rutas_Total': 'Rutas', 'Lotes_Asignados_Total': 'Lotes Entregados',
+                'Km_CamionA_Total': 'Km Unidad A', 'Km_CamionB_Total': 'Km Unidad B', 'Km_Total': 'Km Totales'
             }
-
-            st.dataframe(
-                day[list(columns_to_show.keys())].rename(columns=columns_to_show),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    'KM Camión A': st.column_config.NumberColumn("KM Camión A", format="%.2f km"),
-                    'KM Camión B': st.column_config.NumberColumn("KM Camión B", format="%.2f km"),
-                    'KM Totales': st.column_config.NumberColumn("KM Totales", format="%.2f km"),
-                    'KM Promedio por Ruta': st.column_config.NumberColumn("KM Promedio/Ruta", format="%.2f km"),
-                }
-            )
+            st.dataframe(day[list(cols_show.keys())].rename(columns=cols_show), use_container_width=True, hide_index=True)
             
-            # GRÁFICO
-            st.markdown("##### Kilómetros Totales Recorridos por Día")
+            # Gráfico en azules
+            st.markdown("##### Kilómetros Totales Recorridos")
             st.bar_chart(day, x='Fecha_str', y=['Km_CamionA_Total', 'Km_CamionB_Total'], color=['#003366', '#00A8E8'])
         
         st.subheader("Consolidado Mensual")
