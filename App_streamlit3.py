@@ -8,6 +8,10 @@ import json
 import gspread
 from urllib.parse import quote
 
+# IMPORTACIONES AÑADIDAS PARA MONITOREO EN VIVO
+import folium
+from streamlit_folium import st_folium
+
 # Importa la lógica y constantes del módulo vecino.
 # NOTA: Asumimos que las funciones de GeoJSON (generate_geojson_io_link, generate_geojson)
 # YA están definidas en Routing_logic3.py y se importan correctamente.
@@ -227,15 +231,20 @@ if 'historial_cargado' not in st.session_state:
 
 if 'results' not in st.session_state:
     st.session_state.results = None
+    
+# Inicializar la variable de índice GPS para la simulación
+if 'gps_index' not in st.session_state:
+    st.session_state.gps_index = 0
 
 # =============================================================================
-# ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN
+# ESTRUCTURA DEL MENÚ LATERAL Y NAVEGACIÓN (MODIFICADO)
 # =============================================================================
 
 st.sidebar.title("Menú Principal")
 page = st.sidebar.radio(
     "Seleccione una opción:",
-    ["Calcular Nueva Ruta", "Historial", "Estadísticas"]
+    # NUEVA OPCIÓN AÑADIDA
+    ["Calcular Nueva Ruta", "Historial", "Estadísticas", "Monitoreo en Vivo"] 
 )
 st.sidebar.divider()
 st.sidebar.info(f"Rutas Guardadas: {len(st.session_state.historial_rutas)}")
@@ -336,6 +345,9 @@ if page == "Calcular Nueva Ruta":
                     # 3. Generar Enlaces Google Maps (Se mantiene)
                     results['ruta_a']['gmaps_link'] = generate_gmaps_link(results['ruta_a']['orden_optimo'])
                     results['ruta_b']['gmaps_link'] = generate_gmaps_link(results['ruta_b']['orden_optimo'])
+                    
+                    # Reiniciar índice GPS para la nueva ruta
+                    st.session_state.gps_index = 0
 
                     # CREA LA ESTRUCTURA DEL REGISTRO PARA GUARDADO EN SHEETS
                     new_route = {
@@ -531,3 +543,106 @@ elif page == "Estadísticas":
             )
         st.divider()
         st.caption("Nota: Los KM Totales/Promedio se calculan usando la suma de las distancias optimizadas de cada camión.")
+
+# =============================================================================
+# 5. PÁGINA: MONITOREO EN VIVO (GPS SIMULADO)
+# =============================================================================
+
+elif page == "Monitoreo en Vivo":
+    st.header("📍 Monitoreo en Vivo (Simulado)")
+    st.caption("Visualización del Camión A sobre la ruta planificada.")
+
+    if not st.session_state.results:
+        st.info("No hay rutas calculadas en la sesión. Calcule una nueva ruta para activar el monitoreo.")
+        
+    else:
+        results = st.session_state.results
+        ruta_a = results.get('ruta_a', {})
+
+        if not ruta_a.get('orden_optimo'):
+            st.warning("La Ruta A está vacía. No hay nada que monitorear.")
+        else:
+            
+            # --- 1. Carga del GeoJSON ---
+            # Asumimos que la clave 'geojson_data' se devuelve desde Routing_logic3
+            geojson_data_str = ruta_a.get('geojson_data')
+            if not geojson_data_str:
+                st.error("❌ La clave 'geojson_data' no está disponible en los resultados de la ruta A.")
+                return
+
+            try:
+                geojson_data = json.loads(geojson_data_str)
+            except json.JSONDecodeError:
+                st.error("❌ El GeoJSON de la ruta A no es un JSON válido.")
+                return
+            except Exception as e:
+                st.error(f"❌ Error al procesar el GeoJSON: {e}")
+                return
+
+            # --- 2. Simulación de la Posición GPS ---
+            
+            # Extraer las coordenadas de la traza para simular el recorrido
+            try:
+                # Se asume que la traza de la ruta es la lista de coordenadas principal
+                route_coordinates = geojson_data['features'][0]['geometry']['coordinates']
+            except (KeyError, IndexError):
+                st.error("❌ El formato interno del GeoJSON no es el esperado (features[0].geometry.coordinates).")
+                return
+
+            # Avanzar la posición del camión simulado
+            if st.session_state.gps_index >= len(route_coordinates) - 1:
+                # Reiniciar el recorrido al llegar al final
+                st.session_state.gps_index = 0
+            else:
+                # Mover al siguiente punto
+                st.session_state.gps_index += 1
+            
+            # La posición actual del camión simulado (lon, lat)
+            current_lon, current_lat = route_coordinates[st.session_state.gps_index]
+            
+            # --- 3. Creación del Mapa Folium ---
+            
+            # Centrar el mapa en la posición actual del camión
+            m = folium.Map(location=[current_lat, current_lon], zoom_start=11, tiles="cartodbpositron")
+            
+            # 3.1. Dibujar la Ruta Planificada (Línea GeoJSON)
+            folium.GeoJson(
+                geojson_data,
+                name='Ruta Planificada',
+                style_function=lambda x: {'color': '#0044FF', 'weight': 5, 'opacity': 0.7}
+            ).add_to(m)
+            
+            # 3.2. Añadir Marcadores de Destino
+            # Se muestran los lotes en el orden optimo
+            for i, lote in enumerate(ruta_a['orden_optimo']):
+                if lote in COORDENADAS_LOTES:
+                    lon, lat = COORDENADAS_LOTES[lote]
+                    
+                    folium.Marker(
+                        location=[lat, lon],
+                        tooltip=f"Parada {i+1}: {lote}",
+                        icon=folium.Icon(color='blue', icon='info-sign')
+                    ).add_to(m)
+
+            # 3.3. Añadir el Marcador de GPS en Tiempo Real (Camión)
+            folium.Marker(
+                location=[current_lat, current_lon],
+                tooltip="🚚 POSICIÓN ACTUAL",
+                icon=folium.Icon(color='red', icon='truck', prefix='fa') 
+            ).add_to(m)
+            
+            # --- 4. Renderizar el Mapa en Streamlit y Forzar Actualización ---
+            
+            # Renderizar el mapa interactivo
+            st_folium(m, width=900, height=500, key="folium_monitor") 
+
+[Image of GPS monitoring dashboard showing real-time vehicle location on a map]
+
+
+            # Informar el punto actual
+            st.metric("Punto Simulado Actual", f"Coordenadas: ({current_lat:.4f}, {current_lon:.4f}) - Índice {st.session_state.gps_index}")
+
+            # Forzar la reejecución de la página para simular movimiento
+            if page == "Monitoreo en Vivo":
+                time.sleep(1) # Pausa de 1 segundo
+                st.rerun()    # Forzar la recarga
