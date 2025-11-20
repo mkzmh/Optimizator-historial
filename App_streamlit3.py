@@ -54,6 +54,8 @@ st.markdown("""
         text-align: center !important;
         text-decoration: none !important;
         width: 100% !important;
+        display: flex !important;
+        justify-content: center !important;
     }
     div.stButton > button[kind="primary"]:hover, a[kind="primary"]:hover {
         background-color: #002244 !important;
@@ -61,16 +63,18 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* --- BOTONES SECUNDARIOS (GRIS/NEUTRO) --- */
-    div.stButton > button[kind="secondary"], a[kind="secondary"] {
+    /* --- BOTONES SECUNDARIOS Y DESCARGA (GRIS/NEUTRO) --- */
+    div.stButton > button[kind="secondary"], a[kind="secondary"], div.stDownloadButton > button {
         background-color: #ffffff !important;
         color: #003366 !important;
         border: 1px solid #dce1e6 !important;
         width: 100% !important;
         text-align: center !important;
         text-decoration: none !important;
+        font-weight: 500 !important;
+        border-radius: 6px !important;
     }
-    div.stButton > button[kind="secondary"]:hover, a[kind="secondary"]:hover {
+    div.stButton > button[kind="secondary"]:hover, a[kind="secondary"]:hover, div.stDownloadButton > button:hover {
         border-color: #003366 !important;
         color: #003366 !important;
         background-color: #f0f2f6 !important;
@@ -152,6 +156,7 @@ def get_history_data():
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
 
+# --- LÓGICA DE ESTADÍSTICAS ---
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
     
@@ -174,7 +179,7 @@ def calculate_statistics(df):
         if col not in df.columns: df[col] = 0.0
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    # Cálculo interno de totales
+    # Calculamos el total internamente para evitar KeyError
     df['Km_Total'] = df['Km_CamionA'] + df['Km_CamionB']
 
     daily = df.groupby('Fecha').agg({
@@ -327,12 +332,22 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + ra.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
-                        # Datos Botones
+                        # Datos para botones
+                        kml_data = ra.get('kml_data', "")
                         link_geo = ra.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
                         
-                        # BOTONES SIMPLIFICADOS (SOLO 2)
+                        # BOTONES (Apilados)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
+                        
+                        st.download_button(
+                            label="📂 Descargar Mapa (Organic Maps)",
+                            data=kml_data,
+                            file_name=f"Ruta_A_{datetime.now().strftime('%H%M')}.kml",
+                            mime="application/vnd.google-earth.kml+xml",
+                            use_container_width=True
+                        )
+                        
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
             # UNIDAD B
@@ -353,12 +368,22 @@ if page == "Planificación Operativa":
                         seq = " ➤ ".join(["Ingenio"] + rb.get('orden_optimo', []) + ["Ingenio"])
                         st.code(seq, language="text")
                         
-                        # Datos Botones
+                        # Datos para botones
+                        kml_data = rb.get('kml_data', "")
                         link_geo = rb.get('geojson_link', '#')
                         link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
                         
-                        # BOTONES SIMPLIFICADOS (SOLO 2)
+                        # BOTONES (Apilados)
                         st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
+                        
+                        st.download_button(
+                            label="📂 Descargar Mapa (Organic Maps)",
+                            data=kml_data,
+                            file_name=f"Ruta_B_{datetime.now().strftime('%H%M')}.kml",
+                            mime="application/vnd.google-earth.kml+xml",
+                            use_container_width=True
+                        )
+
                         st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
 
 # =============================================================================
