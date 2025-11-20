@@ -209,7 +209,7 @@ with st.sidebar:
 # =============================================================================
 
 if page == "Planificación Operativa":
-    st.title("Sistema de Optimización Logística")
+    st.title("Optimizador de Rutas")
     st.markdown("##### Planificación y división óptima de lotes para vehículos de entrega")
     
     st.markdown("---")
@@ -381,5 +381,6 @@ elif page == "Estadísticas":
             )
     else:
         st.info("Se requieren datos operativos para generar los indicadores.")
+
 
 
