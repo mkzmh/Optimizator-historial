@@ -2,18 +2,19 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
-import os
-import time
 import json
 import gspread
-from urllib.parse import quote
+from oauth2client.service_account import ServiceAccountCredentials # A veces necesario según la versión de gspread
 
 # =============================================================================
-# 1. IMPORTACIONES
+# 1. IMPORTACIONES DE LA NUEVA LÓGICA
 # =============================================================================
-from Routing_logic3 import (
-    COORDENADAS_LOTES, solve_route_optimization, VEHICLES, COORDENADAS_ORIGEN,
-    generate_geojson_io_link, generate_geojson, COORDENADAS_LOTES_REVERSO
+# Asegúrate de que el archivo se llame routing_logic.py
+from routing_logic import (
+    COORDENADAS_LOTES, 
+    solve_route_optimization, 
+    VEHICLES, 
+    COORDENADAS_ORIGEN
 )
 
 # =============================================================================
@@ -87,47 +88,26 @@ st.markdown("""
 COLUMNS = ["Fecha", "Hora", "LotesIngresados", "Lotes_CamionA", "Lotes_CamionB", "Km_CamionA", "Km_CamionB", "Km Totales"]
 
 # =============================================================================
-# 3. FUNCIONES AUXILIARES
-# =============================================================================
-
-def generate_gmaps_link(stops_order_names):
-    """Genera el link oficial de navegación de Google Maps"""
-    if not stops_order_names: return '#'
-    lat_orig, lon_orig = COORDENADAS_ORIGEN[1], COORDENADAS_ORIGEN[0]
-    origin_str = f"{lat_orig},{lon_orig}"
-    
-    waypoints = []
-    for lote_nombre in stops_order_names:
-        if lote_nombre in COORDENADAS_LOTES:
-            lon, lat = COORDENADAS_LOTES[lote_nombre]
-            waypoints.append(f"{lat},{lon}")
-            
-    base_url = "https://www.google.com/maps/dir/"
-    route_path = "/".join([origin_str] + waypoints + [origin_str])
-    return base_url + route_path
-
-# =============================================================================
-# 4. CONEXIÓN BASE DE DATOS
+# 3. CONEXIÓN BASE DE DATOS (GOOGLE SHEETS)
 # =============================================================================
 
 @st.cache_resource(ttl=3600)
 def get_gspread_client():
     try:
-        credentials_dict = {
-            "type": "service_account",
-            "project_id": st.secrets["gsheets_project_id"],
-            "private_key_id": st.secrets["gsheets_private_key_id"],
-            "private_key": st.secrets["gsheets_private_key"].replace('\\n', '\n'), 
-            "client_email": st.secrets["gsheets_client_email"],
-            "client_id": st.secrets["gsheets_client_id"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{st.secrets['gsheets_client_email']}",
-            "universe_domain": "googleapis.com"
-        }
-        return gspread.service_account_from_dict(credentials_dict)
-    except Exception: return None
+        # Opción A: Usando st.secrets (Recomendado para Streamlit Cloud)
+        if "gsheets" in st.secrets:
+             credentials_dict = dict(st.secrets["gsheets"])
+             # Parche para saltos de línea en claves privadas
+             if "private_key" in credentials_dict:
+                 credentials_dict["private_key"] = credentials_dict["private_key"].replace('\\n', '\n')
+             return gspread.service_account_from_dict(credentials_dict)
+        
+        # Opción B: Archivo local (si corres en tu PC)
+        else:
+             return gspread.service_account(filename='credentials.json')
+    except Exception as e: 
+        st.error(f"Error conectando a Google Sheets: {e}")
+        return None
 
 def save_new_route_to_sheet(new_route_data):
     client = get_gspread_client()
@@ -137,9 +117,9 @@ def save_new_route_to_sheet(new_route_data):
         worksheet = sh.worksheet(st.secrets["SHEET_WORKSHEET"])
         row_values = [new_route_data.get(col, "") for col in COLUMNS]
         worksheet.append_row(row_values)
-        st.cache_data.clear()
+        st.cache_data.clear() # Limpiar caché para recargar historial
     except Exception as e:
-        st.error(f"Error registrando operación: {e}")
+        st.error(f"Error registrando operación en Sheets: {e}")
 
 @st.cache_data(ttl=3600)
 def get_history_data():
@@ -151,6 +131,10 @@ def get_history_data():
         data = worksheet.get_all_records()
         return pd.DataFrame(data)
     except: return pd.DataFrame(columns=COLUMNS)
+
+# =============================================================================
+# 4. ESTADÍSTICAS
+# =============================================================================
 
 def calculate_statistics(df):
     if df.empty: return pd.DataFrame(), pd.DataFrame()
@@ -177,15 +161,13 @@ def calculate_statistics(df):
 
     daily = df.groupby('Fecha').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km_CamionA':'sum', 'Km_CamionB':'sum', 'Km_Total':'sum'}).rename(columns={'Fecha':'Rutas_Total', 'Total_Asignados':'Lotes_Asignados_Total', 'Km_CamionA':'Km_CamionA_Total', 'Km_CamionB':'Km_CamionB_Total', 'Km_Total':'Km_Total'}).reset_index()
     daily['Fecha_str'] = daily['Fecha'].dt.strftime('%Y-%m-%d')
-    daily['Km_Promedio_Ruta'] = daily['Km_Total'] / daily['Rutas_Total']
-
+    
     monthly = df.groupby('Mes').agg({'Fecha':'count', 'Total_Asignados':'sum', 'Km_CamionA':'sum', 'Km_CamionB':'sum', 'Km_Total':'sum'}).rename(columns={'Fecha':'Rutas_Total', 'Total_Asignados':'Lotes_Asignados_Total', 'Km_CamionA':'Km_CamionA_Total', 'Km_CamionB':'Km_CamionB_Total', 'Km_Total':'Km_Total'}).reset_index()
     monthly['Mes_str'] = monthly['Mes'].astype(str)
-    monthly['Km_Promedio_Ruta'] = monthly['Km_Total'] / monthly['Rutas_Total']
     return daily, monthly
 
 # =============================================================================
-# 6. NAVEGACIÓN
+# 5. NAVEGACIÓN Y ESTADO
 # =============================================================================
 
 if 'historial_cargado' not in st.session_state:
@@ -220,18 +202,15 @@ if page == "Planificación Operativa":
     valid_stops = [l for l in all_stops if l in COORDENADAS_LOTES]
     invalid_stops = [l for l in all_stops if l not in COORDENADAS_LOTES]
 
-    # --- SECCIÓN DE MÉTRICAS (MODIFICADA) ---
     c1, c2 = st.columns(2)
     c1.metric("Lotes Identificados", len(valid_stops))
-    # Tarjeta Roja para errores o Gris si está ok
     c2.metric("Lotes No Encontrados", len(invalid_stops), delta_color="inverse") 
     
-    # Advertencia detallada solo si hay errores
     if invalid_stops:
         st.warning(f"⚠️ **Atención:** El sistema no reconoce estos códigos: {', '.join(invalid_stops)}")
 
     if valid_stops:
-        with st.expander("🗺️ Ver Mapa de Lotes", expanded=False):
+        with st.expander("🗺️ Ver Mapa de Lotes (Vista Previa)", expanded=False):
             map_data = [{'lat': COORDENADAS_ORIGEN[1], 'lon': COORDENADAS_ORIGEN[0], 'name': 'INGENIO', 'color':'#000000'}]
             for l in valid_stops:
                 coords = COORDENADAS_LOTES[l]
@@ -245,88 +224,133 @@ if page == "Planificación Operativa":
         calculate = st.button("Calcular optimización", type="primary", disabled=len(valid_stops)==0, use_container_width=True)
 
     if calculate:
-        with st.spinner("Calculando distribución óptima de carga..."):
+        with st.spinner("Optimizando rutas y generando archivos KML/GeoJSON..."):
             try:
+                # LLAMADA A LA NUEVA LÓGICA
                 results = solve_route_optimization(valid_stops)
                 st.session_state.results = results
 
-                if "error" not in results:
-                    now = datetime.now(ARG_TZ)
-                    ra = results.get('ruta_a', {})
-                    rb = results.get('ruta_b', {})
-                    
-                    km_a = ra.get('distancia_km', 0)
-                    km_b = rb.get('distancia_km', 0)
-                    
-                    new_entry = {
-                        "Fecha": now.strftime("%Y-%m-%d"),
-                        "Hora": now.strftime("%H:%M:%S"),
-                        "LotesIngresados": ", ".join(valid_stops),
-                        "Lotes_CamionA": str(ra.get('lotes_asignados', [])),
-                        "Lotes_CamionB": str(rb.get('lotes_asignados', [])),
-                        "Km_CamionA": km_a,
-                        "Km_CamionB": km_b,
-                        "Km Totales": km_a + km_b
-                    }
-                    save_new_route_to_sheet(new_entry)
-                    st.session_state.historial_rutas.append(new_entry)
-                    st.success("Planificación completada y guardada.")
+                # Guardado en Sheets
+                now = datetime.now(ARG_TZ)
+                
+                # Extraer datos para Sheets (Nota: keys ahora son Ruta_A y Ruta_B)
+                ra = results.get('Ruta_A') or {}
+                rb = results.get('Ruta_B') or {}
+                
+                km_a = ra.get('distancia', 0)
+                km_b = rb.get('distancia', 0)
+                
+                # Extraer lista de lotes del orden (excluyendo Ingenio)
+                lotes_a = [x for x in ra.get('orden', []) if x != "Ingenio"]
+                lotes_b = [x for x in rb.get('orden', []) if x != "Ingenio"]
+                
+                new_entry = {
+                    "Fecha": now.strftime("%Y-%m-%d"),
+                    "Hora": now.strftime("%H:%M:%S"),
+                    "LotesIngresados": ", ".join(valid_stops),
+                    "Lotes_CamionA": ", ".join(lotes_a),
+                    "Lotes_CamionB": ", ".join(lotes_b),
+                    "Km_CamionA": km_a,
+                    "Km_CamionB": km_b,
+                    "Km Totales": km_a + km_b
+                }
+                save_new_route_to_sheet(new_entry)
+                st.session_state.historial_rutas.append(new_entry)
+                st.success("Planificación completada y guardada.")
+                
             except Exception as e:
-                st.error(f"Error crítico: {e}")
+                st.error(f"Error durante el cálculo: {e}")
 
+    # --- MOSTRAR RESULTADOS ---
     if st.session_state.results:
         res = st.session_state.results
-        if "error" in res:
-            st.error(res['error'])
-        else:
-            st.markdown("### Resultados de la Planificación")
-            col_a, col_b = st.columns(2)
+        
+        st.markdown("### Resultados de la Planificación")
+        col_a, col_b = st.columns(2)
 
-            with col_a:
-                ra = res.get('ruta_a', {})
-                with st.container(border=True):
-                    patente = ra.get('patente', 'N/A')
-                    st.markdown(f"#### 🚛 Camión 1: {patente}")
+        # --- RUTA A ---
+        with col_a:
+            data_a = res.get('Ruta_A')
+            with st.container(border=True):
+                st.markdown("#### 🚛 Camión 1 (Ruta A)")
+                if not data_a:
+                    st.info("Sin asignación.")
+                elif data_a.get('status') == 'Error API':
+                    st.error("Error de conexión con GraphHopper.")
+                else:
+                    kpi1, kpi2 = st.columns(2)
+                    kpi1.metric("Distancia", f"{data_a['distancia']} km")
+                    # Contamos paradas menos inicio/fin
+                    lotes_count = len([x for x in data_a['orden'] if x != "Ingenio"])
+                    kpi2.metric("Lotes", lotes_count)
                     
-                    if ra.get('mensaje'):
-                        st.info("Sin asignación de lotes.")
-                    else:
-                        kpi1, kpi2 = st.columns(2)
-                        kpi1.metric("Distancia", f"{ra.get('distancia_km',0)} km")
-                        kpi2.metric("Lotes", len(ra.get('lotes_asignados', [])))
-                        
-                        st.markdown("**Secuencia de Entrega:**")
-                        seq = " ➤ ".join(["Ingenio"] + ra.get('orden_optimo', []) + ["Ingenio"])
-                        st.code(seq, language="text")
-                        
-                        link_geo = ra.get('geojson_link', '#')
-                        link_maps = generate_gmaps_link(ra.get('orden_optimo', []))
-                        
-                        st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
+                    st.markdown("**Secuencia:**")
+                    seq = " ➤ ".join(data_a['orden'])
+                    st.code(seq, language="text")
+                    
+                    # LINKS Y DESCARGAS
+                    st.markdown("---")
+                    st.link_button("📍 Abrir en Google Maps", data_a['links']['gmaps'], type="primary", use_container_width=True)
+                    
+                    # Botón KML (Organic Maps)
+                    st.download_button(
+                        label="📂 Descargar KML (Organic Maps)",
+                        data=data_a['archivos']['kml'],
+                        file_name=f"Ruta_A_{datetime.now().strftime('%Y%m%d')}.kml",
+                        mime="application/vnd.google-earth.kml+xml",
+                        use_container_width=True
+                    )
+                    
+                    # Botón GeoJSON
+                    st.download_button(
+                        label="🌍 Descargar GeoJSON",
+                        data=json.dumps(data_a['archivos']['geojson'], indent=2),
+                        file_name=f"Ruta_A_{datetime.now().strftime('%Y%m%d')}.geojson",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+                    
+                    st.link_button("🌐 Ver Online (Geojson.io)", data_a['links']['geojson_io'], use_container_width=True)
 
-            with col_b:
-                rb = res.get('ruta_b', {})
-                with st.container(border=True):
-                    patente = rb.get('patente', 'N/A')
-                    st.markdown(f"#### 🚚 Camión 2: {patente}")
+        # --- RUTA B ---
+        with col_b:
+            data_b = res.get('Ruta_B')
+            with st.container(border=True):
+                st.markdown("#### 🚚 Camión 2 (Ruta B)")
+                if not data_b:
+                    st.info("Sin asignación.")
+                elif data_b.get('status') == 'Error API':
+                    st.error("Error de conexión con GraphHopper.")
+                else:
+                    kpi1, kpi2 = st.columns(2)
+                    kpi1.metric("Distancia", f"{data_b['distancia']} km")
+                    lotes_count = len([x for x in data_b['orden'] if x != "Ingenio"])
+                    kpi2.metric("Lotes", lotes_count)
                     
-                    if rb.get('mensaje'):
-                        st.info("Sin asignación de lotes.")
-                    else:
-                        kpi1, kpi2 = st.columns(2)
-                        kpi1.metric("Distancia", f"{rb.get('distancia_km',0)} km")
-                        kpi2.metric("Lotes", len(rb.get('lotes_asignados', [])))
-                        
-                        st.markdown("**Secuencia de Entrega:**")
-                        seq = " ➤ ".join(["Ingenio"] + rb.get('orden_optimo', []) + ["Ingenio"])
-                        st.code(seq, language="text")
-                        
-                        link_geo = rb.get('geojson_link', '#')
-                        link_maps = generate_gmaps_link(rb.get('orden_optimo', []))
-                        
-                        st.link_button("📍 Iniciar Ruta (Google Maps)", link_maps, type="primary", use_container_width=True)
-                        st.link_button("🌐 Ver Mapa Web (Visual)", link_geo, type="secondary", use_container_width=True)
+                    st.markdown("**Secuencia:**")
+                    seq = " ➤ ".join(data_b['orden'])
+                    st.code(seq, language="text")
+                    
+                    st.markdown("---")
+                    st.link_button("📍 Abrir en Google Maps", data_b['links']['gmaps'], type="primary", use_container_width=True)
+                    
+                    st.download_button(
+                        label="📂 Descargar KML (Organic Maps)",
+                        data=data_b['archivos']['kml'],
+                        file_name=f"Ruta_B_{datetime.now().strftime('%Y%m%d')}.kml",
+                        mime="application/vnd.google-earth.kml+xml",
+                        use_container_width=True
+                    )
+                    
+                    st.download_button(
+                        label="🌍 Descargar GeoJSON",
+                        data=json.dumps(data_b['archivos']['geojson'], indent=2),
+                        file_name=f"Ruta_B_{datetime.now().strftime('%Y%m%d')}.geojson",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+
+                    st.link_button("🌐 Ver Online (Geojson.io)", data_b['links']['geojson_io'], use_container_width=True)
 
 # =============================================================================
 # PÁGINA 2: HISTORIAL
