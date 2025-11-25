@@ -6,7 +6,7 @@ from urllib.parse import quote
 from math import radians, sin, cos, sqrt, atan2
 
 # =============================================================================
-# 1. CONFIGURACIÓN BASE Y COORDENADAS
+# 1. CONFIGURACIÓN
 # =============================================================================
 
 API_KEY = "2ce810e0-dc57-4aa4-8099-bf0e33ec48e9"
@@ -174,32 +174,31 @@ def haversine(coord1, coord2):
 
 def find_best_grouping_variable(all_lotes, max_iterations=100):
     """
-    Agrupa los lotes en 2 clusters usando el algoritmo K-Means con distancia Haversine.
-    Es mucho más rápido que combinaciones y agrupa geográficamente (ej. Norte/Sur).
+    K-Means Clustering.
     """
     if not all_lotes:
         return [], [], 0
     
-    # Si hay muy pocos lotes, dividir simplemente por la mitad
-    if len(all_lotes) < 3:
-        mid = len(all_lotes) // 2
-        return all_lotes[:mid], all_lotes[mid:], 0
+    # CASO BORDE: Si solo hay 1 lote, no intentamos dividir, va todo al grupo A
+    # Esto evita errores matemáticos en K-Means
+    if len(all_lotes) == 1:
+        return all_lotes, [], 0
 
-    # 1. Obtener coordenadas de los lotes
-    points = [COORDENADAS_LOTES[lote] for lote in all_lotes]
+    points = [COORDENADAS_LOTES.get(lote, COORDENADAS_ORIGEN) for lote in all_lotes]
     
-    # 2. Inicialización: Elegir 2 centroides aleatorios (Semilla fija para consistencia)
     random.seed(42) 
-    centroids = random.sample(points, 2)
-    
+    # Aseguramos que sample no falle si hay pocos puntos
+    if len(points) >= 2:
+        centroids = random.sample(points, 2)
+    else:
+        centroids = [points[0], points[0]]
+
     clusters_keys = [[], []]
     
-    # 3. Iterar K-Means
     for iteration in range(max_iterations):
         new_clusters_points = [[], []]
         new_clusters_keys = [[], []]
         
-        # Asignar cada punto al centroide más cercano
         for i, point in enumerate(points):
             dist_0 = haversine(point, centroids[0])
             dist_1 = haversine(point, centroids[1])
@@ -211,27 +210,23 @@ def find_best_grouping_variable(all_lotes, max_iterations=100):
                 new_clusters_points[1].append(point)
                 new_clusters_keys[1].append(all_lotes[i])
         
-        # Evitar clusters vacíos
         if not new_clusters_points[0] or not new_clusters_points[1]:
+            # Si un cluster quedó vacío, forzamos división simple
             mid = len(all_lotes) // 2
             return all_lotes[:mid], all_lotes[mid:], 0
 
-        # Calcular nuevos centroides (promedio lat/lon)
         new_centroids = []
         for cluster_pts in new_clusters_points:
             avg_lon = sum(p[0] for p in cluster_pts) / len(cluster_pts)
             avg_lat = sum(p[1] for p in cluster_pts) / len(cluster_pts)
             new_centroids.append([avg_lon, avg_lat])
         
-        # Convergencia
         if new_centroids == centroids:
             clusters_keys = new_clusters_keys
-            break
-            
+            break   
         centroids = new_centroids
         clusters_keys = new_clusters_keys
 
-    # Retornamos 0 como distancia dummy (ya no es relevante para la decisión del grupo)
     return clusters_keys[0], clusters_keys[1], 0
 
 def make_api_request(points_list):
@@ -242,61 +237,84 @@ def make_api_request(points_list):
         "locale": "es",
         "instructions": False,
         "points_encoded": False,
-        "optimize": "true" # ¡Esto hace que la API ordene los puntos de la mejor manera!
+        "optimize": "true" 
     }
     try:
         response = requests.post(URL_ROUTE_FINAL, headers=HEADERS, data=json.dumps(request_body))
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Error API: {e}")
         return None
+
+def clean_consecutive_duplicates(name_list):
+    """
+    Limpia la lista para evitar 'Ingenio > Ingenio' si la API o la lógica
+    duplicaron los puntos de inicio/fin.
+    """
+    if not name_list:
+        return []
+    cleaned = [name_list[0]]
+    for i in range(1, len(name_list)):
+        if name_list[i] != name_list[i-1]:
+            cleaned.append(name_list[i])
+    return cleaned
 
 def generate_geojson(route_name, points_sequence, path_coordinates, total_distance_km, vehicle_id):
     features = []
     num_points = len(points_sequence)
     color_map = {"AF820AB": "#0080FF", "AE898TW": "#FF4500"}
     line_color = color_map.get(vehicle_id, "#000000")
+    
     for i in range(num_points):
         coords = points_sequence[i]
         is_origin = (i == 0)
         is_destination = (i == num_points - 1)
-        lote_name = "Ingenio"
-        if not is_origin and not is_destination:
-            lote_name = next((name for original_coords, name in COORDENADAS_LOTES_REVERSO.items()
-                             if round(original_coords[0], 6) == round(coords[0], 6) and round(original_coords[1], 6) == round(coords[1], 6)),
-                             "Punto Intermedio")
+        
+        # Identificación robusta del nombre
+        lote_name = "Punto Intermedio"
+        
+        # Primero chequeamos si es origen exacto
+        if abs(coords[0] - COORDENADAS_ORIGEN[0]) < 0.0001 and abs(coords[1] - COORDENADAS_ORIGEN[1]) < 0.0001:
+            lote_name = "Ingenio"
+        else:
+            # Buscamos en el diccionario
+            for original_coords, name in COORDENADAS_LOTES_REVERSO.items():
+                if abs(original_coords[0] - coords[0]) < 0.0001 and abs(original_coords[1] - coords[1]) < 0.0001:
+                    lote_name = name
+                    break
+        
         point_type = "PARADA"
-        color = line_color
         symbol = str(i)
+        color = line_color
+        
         if is_origin:
-            point_type = "ORIGEN (Ingenio)"
+            point_type = "ORIGEN"
             color = "#008000"
             symbol = "star"
         elif is_destination:
-            point_type = "DESTINO (Regreso)"
+            point_type = "DESTINO"
             color = "#FF0000"
             symbol = "square"
+            
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": coords},
             "properties": {
-                "name": f"{i} - {point_type} ({lote_name})",
+                "name": f"{i} - {lote_name}", # Nombre simplificado para el mapa
                 "marker-color": color,
                 "marker-symbol": symbol,
-                "order": i,
                 "vehicle": vehicle_id
             }
         })
+        
     features.append({
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": path_coordinates},
         "properties": {
-            "name": f"Ruta: {route_name}",
+            "name": route_name,
             "stroke": line_color,
             "stroke-width": 4,
-            "distance_km": total_distance_km,
-            "vehicle": vehicle_id
+            "distance_km": total_distance_km
         }
     })
     return {"type": "FeatureCollection", "features": features}
@@ -308,69 +326,72 @@ def generate_geojson_io_link(geojson_object):
     return base_url + encoded_geojson
 
 # =============================================================================
-# 3. FUNCIÓN PRINCIPAL EXPORTABLE
+# 3. FUNCIÓN PRINCIPAL
 # =============================================================================
 
 def solve_route_optimization(all_intermediate_stops):
-    # 1. Agrupar lotes con K-Means (Rápido y geográfico)
-    group_a_names, group_b_names, _ = find_best_grouping_variable(all_intermediate_stops)
+    # Filtramos lotes que no estén en el diccionario para evitar errores
+    valid_stops = [l for l in all_intermediate_stops if l in COORDENADAS_LOTES]
     
-    if not group_a_names and not group_b_names:
-        return {"error": "No hay lotes para procesar."}
+    group_a_names, group_b_names, _ = find_best_grouping_variable(valid_stops)
     
-    print(f"Grupo A ({len(group_a_names)} lotes): {group_a_names}")
-    print(f"Grupo B ({len(group_b_names)} lotes): {group_b_names}")
-
     VEHICLE_A_ID = "AF820AB"
     VEHICLE_B_ID = "AE898TW"
     results = {}
 
-    # --- RUTA A ---
-    # Construimos la lista: [Ingenio, ...Lotes A..., Ingenio]
-    # La API con optimize=true decidirá el orden interno
-    all_stops_coords_A = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_a_names] + [COORDENADAS_ORIGEN]
-    
-    response_A = make_api_request(all_stops_coords_A)
-    if response_A:
-        dist_km = round(response_A['paths'][0]['distance'] / 1000, 2)
-        indices = response_A['paths'][0]['points_order']
-        # Mapeamos nombres según el nuevo orden
-        names_A_input = ["Ingenio"] + group_a_names + ["Ingenio"]
-        ordered_names = [names_A_input[i] for i in indices]
+    def process_route(vehicle_id, group_names, vehicle_name):
+        if not group_names:
+            return {
+                "patente": vehicle_id,
+                "nombre": vehicle_name,
+                "lotes_asignados": [],
+                "distancia_km": 0,
+                "orden_optimo": ["Sin ruta asignada"],
+                "geojson_link": ""
+            }
+
+        # Construimos input: Inicio -> Lotes -> Fin
+        coords_input = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_names] + [COORDENADAS_ORIGEN]
+        names_input = ["Ingenio"] + group_names + ["Ingenio"]
         
-        results["ruta_a"] = {
-            "patente": VEHICLE_A_ID,
-            "nombre": VEHICLES[VEHICLE_A_ID]['name'],
-            "lotes_asignados": group_a_names,
-            "distancia_km": dist_km,
-            "orden_optimo": ordered_names,
-            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta A", [all_stops_coords_A[i] for i in indices], response_A['paths'][0]['points']['coordinates'], dist_km, VEHICLE_A_ID))
-        }
-    else:
-        results["ruta_a"] = {"error": "Fallo API Ruta A"}
+        resp = make_api_request(coords_input)
+        if resp:
+            dist = round(resp['paths'][0]['distance'] / 1000, 2)
+            indices = resp['paths'][0]['points_order']
+            path_coords = resp['paths'][0]['points']['coordinates']
+            
+            # Reordenamos los nombres según lo que decidió la API
+            ordered_names = [names_input[i] for i in indices]
+            
+            # LIMPIEZA DE DUPLICADOS (Para arreglar el "Ingenio > Ingenio")
+            clean_names = clean_consecutive_duplicates(ordered_names)
+            
+            # Generamos GeoJSON usando las coordenadas REALES de la ruta (snapped)
+            # Nota: GraphHopper puede devolver más puntos en la geometría que paradas,
+            # pero para los marcadores usamos las paradas reordenadas.
+            stops_coords_ordered = [coords_input[i] for i in indices]
+            
+            geojson = generate_geojson(vehicle_name, stops_coords_ordered, path_coords, dist, vehicle_id)
+            
+            return {
+                "patente": vehicle_id,
+                "nombre": vehicle_name,
+                "lotes_asignados": group_names,
+                "distancia_km": dist,
+                "orden_optimo": clean_names, # Lista limpia
+                "geojson_link": generate_geojson_io_link(geojson)
+            }
+        else:
+            return {"error": f"Fallo API para {vehicle_name}"}
 
-    # RETARDO (Evitar límite de API)
-    time.sleep(2) 
-
-    # --- RUTA B ---
-    all_stops_coords_B = [COORDENADAS_ORIGEN] + [COORDENADAS_LOTES[name] for name in group_b_names] + [COORDENADAS_ORIGEN]
+    # Procesar Ruta A
+    results["ruta_a"] = process_route(VEHICLE_A_ID, group_a_names, VEHICLES[VEHICLE_A_ID]['name'])
     
-    response_B = make_api_request(all_stops_coords_B)
-    if response_B:
-        dist_km = round(response_B['paths'][0]['distance'] / 1000, 2)
-        indices = response_B['paths'][0]['points_order']
-        names_B_input = ["Ingenio"] + group_b_names + ["Ingenio"]
-        ordered_names = [names_B_input[i] for i in indices]
-
-        results["ruta_b"] = {
-            "patente": VEHICLE_B_ID,
-            "nombre": VEHICLES[VEHICLE_B_ID]['name'],
-            "lotes_asignados": group_b_names,
-            "distancia_km": dist_km,
-            "orden_optimo": ordered_names,
-            "geojson_link": generate_geojson_io_link(generate_geojson("Ruta B", [all_stops_coords_B[i] for i in indices], response_B['paths'][0]['points']['coordinates'], dist_km, VEHICLE_B_ID))
-        }
-    else:
-         results["ruta_b"] = {"error": "Fallo API Ruta B"}
+    # Pequeña pausa si hay dos rutas para no saturar la API (Rate Limit)
+    if group_a_names and group_b_names:
+        time.sleep(1.5)
+        
+    # Procesar Ruta B
+    results["ruta_b"] = process_route(VEHICLE_B_ID, group_b_names, VEHICLES[VEHICLE_B_ID]['name'])
 
     return results
